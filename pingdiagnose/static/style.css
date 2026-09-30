@@ -18,7 +18,10 @@ a { color: var(--primary); text-decoration: none; }
 .side-foot { margin-top: auto; padding: 14px 20px; border-top: 1px solid #1f2937; font-size: 12px; }
 .side-foot .role { display: inline-block; padding: 1px 6px; border-radius: 4px; background: #334155; margin-left: 4px; }
 .side-foot button { margin-top: 8px; width: 100%; }
-.main { flex: 1; padding: 22px 26px; min-width: 0; }
+.copyright { margin-top: auto; padding-top: 24px; text-align: center; font-size: 12px; color: #9aa3b5; }
+.copyright a { color: inherit; }
+.login-copy { position: absolute; bottom: 16px; left: 0; right: 0; color: rgba(255,255,255,.45); }
+.main { flex: 1; padding: 22px 26px 14px; min-width: 0; display: flex; flex-direction: column; }
 h1 { font-size: 22px; margin: 0 0 18px; }
 .dash-title { text-align: center; }
 .dash-title.custom { color: #dc2626; }
@@ -76,7 +79,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #bfdbfe; border-c
 .toast { min-width: 280px; max-width: 380px; background: #fff; border-left: 5px solid var(--primary); box-shadow: 0 6px 20px rgba(0,0,0,.15); border-radius: 8px; padding: 12px 14px; }
 .toast.down { border-left-color: var(--down); } .toast.up { border-left-color: var(--ok); } .toast.err { border-left-color: var(--down); }
 .toast b { display: block; margin-bottom: 3px; }
-.login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #1e3a8a, #111827); }
+.login-wrap { position: relative; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #1e3a8a, #111827); }
 .login-box { background: #fff; padding: 30px 32px; border-radius: 14px; width: 360px; }
 .login-box h1 { text-align: center; } .login-box .field { margin-bottom: 14px; } .login-box input { width: 100%; }
 .login-box button { width: 100%; padding: 10px; }

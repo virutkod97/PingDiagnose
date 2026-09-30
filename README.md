@@ -79,3 +79,6 @@ Sau khi đổi cấu hình: `sc stop PingDiagnose & sc start PingDiagnose`.
 
 Trên Windows có Python 3.10+: chạy `build.bat` → `dist\PingDiagnose-win64.zip`.
 Mỗi lần push, GitHub Actions tự build, chạy test và chạy thử service; push tag `v*` để tạo Release.
+
+---
+Copyright AnhND - CNTT&CĐS PCNB - anhnd1097@gmail.com
