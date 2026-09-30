@@ -1,15 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}
 {% block content %}
-<div class="toolbar">
-  <h1 style="margin:0">Dashboard</h1>
-  <div class="muted" id="cycleInfo"></div>
-</div>
+<h1>Dashboard</h1>
 
 <div class="grid kpis">
   <div class="kpi"><div class="label">Tổng địa chỉ</div><div class="value" id="kTotal">–</div></div>
   <div class="kpi ok"><div class="label">Hoạt động</div><div class="value" id="kUp">–</div></div>
-  <div class="kpi warn"><div class="label">Đang lỗi (&lt; ngưỡng)</div><div class="value" id="kWarn">–</div></div>
+  <div class="kpi warn"><div class="label">Đang lỗi</div><div class="value" id="kWarn">–</div></div>
   <div class="kpi down"><div class="label">Mất kết nối</div><div class="value" id="kDown">–</div></div>
   <div class="kpi"><div class="label">Tỷ lệ kết nối 24h</div><div class="value" id="kAvail">–</div></div>
   <div class="kpi"><div class="label">Tỷ lệ gói nhận 24h</div><div class="value" id="kPacket">–</div></div>
@@ -79,8 +76,7 @@ function renderHosts() {
       <td>${pctCell(h.avail_24h)}</td>
       <td>${pctCell(h.avail_7d)}</td>
       <td title="${fmtTime(h.last_check)}">${fmtAgo(h.last_check)}</td>
-    </tr>`).join('') : '<tr><td colspan="8" class="muted">Chưa có địa chỉ nào. ' +
-      (APP.isAdmin ? '<a href="/hosts">Thêm địa chỉ giám sát</a>' : '') + '</td></tr>';
+    </tr>`).join('') : '<tr><td colspan="8" class="muted">Chưa có địa chỉ.</td></tr>';
 }
 
 async function load() {
@@ -89,9 +85,6 @@ async function load() {
   kTotal.textContent = c.enabled + (c.total > c.enabled ? ` / ${c.total}` : '');
   kUp.textContent = c.up; kWarn.textContent = c.warning; kDown.textContent = c.down;
   kAvail.textContent = fmtPct(data.avail_24h); kPacket.textContent = fmtPct(data.packet_24h);
-  const s = data.settings;
-  cycleInfo.textContent = `Chu kỳ ${Math.round(s.interval_seconds / 60 * 10) / 10} phút · ${s.ping_count} gói/lần · cảnh báo sau ${s.fail_threshold} chu kỳ` +
-    (data.next_cycle ? ` · lần kế tiếp: ${fmtTime(data.next_cycle).slice(0, 8)}` : '');
   renderHosts();
 
   const labels = data.trend.map(t => t.label), vals = data.trend.map(t => t.avail), rtt = data.trend.map(t => t.rtt);

@@ -1,7 +1,7 @@
 import csv
 import io
-import os
 import logging
+import os
 import secrets
 import time
 from datetime import datetime, timedelta
@@ -222,7 +222,6 @@ def create_app(monitor=None):
         events = db.query(
             "SELECT e.*, h.name, h.ip FROM events e LEFT JOIN hosts h ON h.id = e.host_id "
             "ORDER BY e.id DESC LIMIT 15")
-        m = app.monitor
         return jsonify(
             counts=counts,
             avail_24h=pct(tot_ok, tot_n),
@@ -232,10 +231,6 @@ def create_app(monitor=None):
                     "avail": pct(r["ok"], r["n"]),
                     "rtt": round(r["rtt"], 1) if r["rtt"] is not None else None} for r in trend],
             events=[fmt_event(e) for e in events],
-            last_cycle=m.last_cycle if m else None,
-            next_cycle=m.next_cycle if m else None,
-            now=now,
-            settings=db.get_settings(),
         )
 
     @app.route("/api/hosts")
@@ -449,24 +444,28 @@ def create_app(monitor=None):
         rep = build_report()
         buf = io.StringIO()
         buf.write("﻿")
-        w = csv.writer(buf)
-        w.writerow([f"Báo cáo kết nối từ {rep['from']} đến {rep['to']}"])
-        w.writerow([])
-        w.writerow(["Tên", "Địa chỉ", "Số lần kiểm tra", "Thành công", "Thất bại",
-                    "Tỷ lệ kết nối (%)", "Tỷ lệ gói nhận (%)", "RTT TB (ms)", "RTT min", "RTT max",
-                    "Số lần cảnh báo", "Thời gian mất kết nối (ước tính)"])
+        writer = csv.writer(buf)
+
+        def put(row):
+            writer.writerow(["'" + v if isinstance(v, str) and v[:1] in ("=", "+", "-", "@") else v for v in row])
+
+        put([f"Báo cáo kết nối từ {rep['from']} đến {rep['to']}"])
+        put([])
+        put(["Tên", "Địa chỉ", "Số lần kiểm tra", "Thành công", "Thất bại",
+             "Tỷ lệ kết nối (%)", "Tỷ lệ gói nhận (%)", "RTT TB (ms)", "RTT min", "RTT max",
+             "Số lần mất kết nối", "Thời gian mất kết nối"])
         for r in rep["table"]:
-            w.writerow([r["name"], r["ip"], r["checks"], r["ok"], r["fail"], r["avail"], r["packet"],
-                        r["rtt"], r["rtt_min"], r["rtt_max"], r["down_events"], r["downtime_text"]])
-        w.writerow([])
-        w.writerow(["Thời gian", "Số lần kiểm tra", "Thành công", "Thất bại", "Tỷ lệ kết nối (%)",
-                    "Tỷ lệ gói nhận (%)", "RTT TB (ms)"])
+            put([r["name"], r["ip"], r["checks"], r["ok"], r["fail"], r["avail"], r["packet"],
+                 r["rtt"], r["rtt_min"], r["rtt_max"], r["down_events"], r["downtime_text"]])
+        put([])
+        put(["Thời gian", "Số lần kiểm tra", "Thành công", "Thất bại", "Tỷ lệ kết nối (%)",
+             "Tỷ lệ gói nhận (%)", "RTT TB (ms)"])
         for s in rep["series"]:
-            w.writerow([s["label"], s["checks"], s["ok"], s["fail"], s["avail"], s["packet"], s["rtt"]])
-        w.writerow([])
-        w.writerow(["Thời điểm", "Loại", "Địa chỉ", "Nội dung"])
+            put([s["label"], s["checks"], s["ok"], s["fail"], s["avail"], s["packet"], s["rtt"]])
+        put([])
+        put(["Thời điểm", "Loại", "Địa chỉ", "Nội dung"])
         for e in rep["events"]:
-            w.writerow([e["time"], "Mất kết nối" if e["type"] == "down" else "Phục hồi", e["ip"], e["message"]])
+            put([e["time"], "Mất kết nối" if e["type"] == "down" else "Phục hồi", e["ip"], e["message"]])
         fname = f"baocao_{rep['from']}_{rep['to']}.csv"
         return Response(buf.getvalue(), mimetype="text/csv; charset=utf-8",
                         headers={"Content-Disposition": f"attachment; filename={fname}"})
@@ -613,7 +612,7 @@ def tz_offset():
 def fmt_dur(sec):
     sec = int(sec or 0)
     if sec <= 0:
-        return "0"
+        return "0 phút"
     d, rem = divmod(sec, 86400)
     h, rem = divmod(rem, 3600)
     m = rem // 60

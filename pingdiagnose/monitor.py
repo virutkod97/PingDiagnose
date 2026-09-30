@@ -35,7 +35,7 @@ def process_result(host, result, threshold, now=None):
                 event = ("down", f"{host['name']} ({host['ip']}) không phản hồi {fails} chu kỳ liên tiếp")
         else:
             new_status = "down" if status == "down" else "warning"
-    changed = (new_status == "down") != (status == "down") or status == "unknown"
+    changed = status == "unknown" or (new_status == "up") != (status == "up")
     with db.tx() as conn:
         conn.execute("INSERT INTO checks(host_id, ts, sent, received, rtt_avg) VALUES (?,?,?,?,?)",
                      (host["id"], now, result.sent, result.received, result.rtt_avg))
@@ -113,5 +113,11 @@ class Monitor:
             except Exception:
                 interval = 180
             self.next_cycle = int(start + interval)
-            self._stop.wait(max(1, start + interval - time.time()))
+            while not self._stop.wait(min(5, max(0, self.next_cycle - time.time()))):
+                if time.time() >= self.next_cycle:
+                    break
+                try:
+                    self.next_cycle = int(start + max(30, db.get_settings()["interval_seconds"]))
+                except Exception:
+                    pass
         log.info("Dừng giám sát")

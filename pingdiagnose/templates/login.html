@@ -11,14 +11,12 @@
 <div class="login-wrap">
   <form class="login-box" method="post">
     <h1>{{ app_name }}</h1>
-    <p class="muted" style="text-align:center;margin-top:-10px">Hệ thống giám sát kết nối IP</p>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="field"><label>Tên đăng nhập</label><input name="username" autofocus required autocomplete="username"></div>
     <div class="field"><label>Mật khẩu</label><input name="password" type="password" required autocomplete="current-password"></div>
     <button class="btn-primary" type="submit">Đăng nhập</button>
-    <p class="muted" style="font-size:12px;margin:14px 0 0;text-align:center">Trình duyệt báo "Không bảo mật"?
-      <a href="/install-ca.bat">Cài chứng chỉ cho máy này</a> rồi mở lại trình duyệt.</p>
+    <p style="font-size:12px;margin:14px 0 0;text-align:center"><a href="/install-ca.bat">Cài chứng chỉ</a></p>
   </form>
 </div>
 </body>

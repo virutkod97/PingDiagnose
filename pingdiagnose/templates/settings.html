@@ -2,60 +2,45 @@
 {% block title %}Cấu hình{% endblock %}
 {% block content %}
 <h1>Cấu hình giám sát</h1>
-{% if user.role != 'admin' %}<div class="info-banner">Tài khoản của bạn chỉ có quyền xem.</div>{% endif %}
 <div class="card" style="max-width:620px">
   <form id="setForm">
-    <div class="field" style="margin-bottom:12px"><label>Chu kỳ ping (giây) – mặc định 180 = 3 phút</label><input type="number" id="interval_seconds" min="30" max="86400" required></div>
-    <div class="field" style="margin-bottom:12px"><label>Số gói ping mỗi chu kỳ – mặc định 2</label><input type="number" id="ping_count" min="1" max="10" required></div>
+    <div class="field" style="margin-bottom:12px"><label>Chu kỳ ping (giây)</label><input type="number" id="interval_seconds" min="30" max="86400" required></div>
+    <div class="field" style="margin-bottom:12px"><label>Số gói ping mỗi chu kỳ</label><input type="number" id="ping_count" min="1" max="10" required></div>
     <div class="field" style="margin-bottom:12px"><label>Thời gian chờ mỗi gói (ms)</label><input type="number" id="ping_timeout_ms" min="100" max="10000" required></div>
-    <div class="field" style="margin-bottom:12px"><label>Số chu kỳ không phản hồi liên tiếp trước khi cảnh báo – mặc định 3 (= 9 phút)</label><input type="number" id="fail_threshold" min="1" max="100" required></div>
-    <div class="field" style="margin-bottom:12px"><label>Số ngày lưu dữ liệu (0 = không xoá)</label><input type="number" id="retention_days" min="0" max="3650" required></div>
-    <p class="muted" id="summary"></p>
+    <div class="field" style="margin-bottom:12px"><label>Số chu kỳ lỗi liên tiếp để báo mất kết nối</label><input type="number" id="fail_threshold" min="1" max="100" required></div>
+    <div class="field" style="margin-bottom:12px"><label>Số ngày lưu dữ liệu</label><input type="number" id="retention_days" min="0" max="3650" required></div>
     {% if user.role == 'admin' %}<button class="btn-primary" type="submit">Lưu cấu hình</button>{% endif %}
   </form>
 </div>
 <div class="card" style="max-width:820px">
   <h2>Chứng chỉ HTTPS</h2>
   <div id="certInfo" class="muted" style="margin-bottom:10px"></div>
-  <div class="muted">
-    <p>Để trình duyệt không báo "Không bảo mật", máy trạm cần tin cậy chứng chỉ của PingDiagnose. Chọn một cách:</p>
-    <ol>
-      <li><b>Từng máy:</b> tải và chạy <a href="/install-ca.bat">PingDiagnose-cai-chung-chi.bat</a>, bấm <b>Yes</b>, đóng hết trình duyệt rồi mở lại.
-        (Hoặc tải <a href="/ca.crt">ca.crt</a> → mở → <i>Install Certificate</i> → <i>Trusted Root Certification Authorities</i>.)</li>
-      <li><b>Cả domain (Active Directory):</b> Group Policy → Computer Configuration → Windows Settings → Security Settings →
-        Public Key Policies → Trusted Root Certification Authorities → Import file <a href="/ca.crt">ca.crt</a>.</li>
-      <li><b>Dùng chứng chỉ có sẵn của công ty</b> (wildcard hoặc do CA nội bộ của AD cấp): trên máy chủ chạy
-        <code>PingDiagnose.exe cert --import chungchi.pfx --password matkhau</code> rồi khởi động lại service. Máy trạm không cần làm gì.</li>
-    </ol>
+  <div class="form-row">
+    <a class="btn" href="/install-ca.bat">Tải file cài chứng chỉ (.bat)</a>
+    <a class="btn" href="/ca.crt">Tải ca.crt</a>
   </div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
 const KEYS = ['interval_seconds', 'ping_count', 'ping_timeout_ms', 'fail_threshold', 'retention_days'];
-function summary() {
-  const i = +interval_seconds.value, t = +fail_threshold.value;
-  document.getElementById('summary').textContent =
-    `Mỗi ${Math.round(i / 6) / 10} phút gửi ${ping_count.value} gói ping tới mỗi địa chỉ. Cảnh báo khi không phản hồi ${t} chu kỳ liên tiếp (≈ ${Math.round(i * t / 6) / 10} phút).`;
-}
 (async () => {
   const s = (await api('/api/settings')).settings;
-  KEYS.forEach(k => { const el = document.getElementById(k); el.value = s[k]; el.disabled = !APP.isAdmin; el.oninput = summary; });
-  summary();
+  KEYS.forEach(k => { const el = document.getElementById(k); el.value = s[k]; el.disabled = !APP.isAdmin; });
 })();
 (async () => {
   try {
     const c = await api('/api/cert');
     certInfo.innerHTML = c.https
-      ? `Đang dùng: <b>${c.custom ? 'chứng chỉ riêng' : 'CA nội bộ của PingDiagnose'}</b> · cấp bởi ${esc(c.issuer)} · hết hạn ${esc(c.expires)}<br>Tên hợp lệ: ${esc(c.names.join(', '))}`
-      : '<span class="ev-down">HTTPS đang tắt.</span> Bật bằng lệnh <code>PingDiagnose.exe config --https on</code>.';
+      ? `Cấp bởi: ${esc(c.issuer)}<br>Hết hạn: ${esc(c.expires)}<br>Tên hợp lệ: ${esc(c.names.join(', '))}`
+      : 'HTTPS đang tắt';
   } catch (e) { }
 })();
 
 setForm.onsubmit = async e => {
   e.preventDefault();
   const body = {}; KEYS.forEach(k => body[k] = +document.getElementById(k).value);
-  try { await api('/api/settings', { method: 'PUT', body }); toast('Đã lưu', 'Cấu hình áp dụng từ chu kỳ kế tiếp'); }
+  try { await api('/api/settings', { method: 'PUT', body }); toast('Đã lưu', ''); }
   catch (err) { toast('Lỗi', err.message, 'err'); }
 };
 </script>

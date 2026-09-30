@@ -10,7 +10,6 @@
   </div>
   {% endif %}
 </div>
-{% if user.role != 'admin' %}<div class="info-banner">Tài khoản của bạn chỉ có quyền xem.</div>{% endif %}
 <div class="card">
   <div class="form-row"><input id="filter" placeholder="Tìm tên / IP..." style="width:240px"><span class="muted" id="countInfo"></span></div>
   <div class="table-wrap">
@@ -27,8 +26,8 @@
   <form class="modal" id="editForm">
     <h2 id="editTitle">Thêm địa chỉ</h2>
     <input type="hidden" id="hId">
-    <div class="field"><label>Địa chỉ IP / tên máy *</label><input id="hIp" required placeholder="VD: 192.168.1.1"></div>
-    <div class="field"><label>Tên hiển thị</label><input id="hName" placeholder="VD: Router tầng 1"></div>
+    <div class="field"><label>Địa chỉ IP</label><input id="hIp" required></div>
+    <div class="field"><label>Tên hiển thị</label><input id="hName"></div>
     <div class="field"><label>Mô tả</label><textarea id="hDesc" rows="2"></textarea></div>
     <div class="field"><label><input type="checkbox" id="hEnabled" checked style="width:auto"> Đang giám sát</label></div>
     <div class="muted" id="testResult"></div>
@@ -42,8 +41,7 @@
 <div class="modal-bg" id="importModal">
   <form class="modal" id="importForm">
     <h2>Nhập danh sách địa chỉ</h2>
-    <p class="muted">Mỗi dòng một địa chỉ theo dạng: <code>IP, Tên, Mô tả</code> (Tên và Mô tả có thể bỏ trống).</p>
-    <textarea id="importText" rows="10" style="width:100%" placeholder="192.168.1.1, Router&#10;192.168.1.10, Server A, Phòng máy&#10;8.8.8.8"></textarea>
+    <textarea id="importText" rows="10" style="width:100%" placeholder="IP, Tên, Mô tả"></textarea>
     <div class="modal-actions">
       <button type="button" onclick="closeModal('importModal')">Huỷ</button>
       <button type="submit" class="btn-primary">Nhập</button>
