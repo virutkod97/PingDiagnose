@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Tài khoản{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <h1 style="margin:0">Quản lý tài khoản</h1>
+  <button class="btn-primary" onclick="openUser()">+ Thêm tài khoản</button>
+</div>
+<div class="card">
+  <p class="muted" style="margin-top:0"><b>Quản trị</b>: toàn quyền (thêm/sửa/xoá địa chỉ, tài khoản, cấu hình). <b>Chỉ xem</b>: xem dashboard, báo cáo, cảnh báo.</p>
+  <table>
+    <thead><tr><th>Tên đăng nhập</th><th>Quyền</th><th>Ngày tạo</th><th style="width:200px"></th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
+<div class="modal-bg" id="userModal">
+  <form class="modal" id="userForm">
+    <h2 id="uTitle">Thêm tài khoản</h2>
+    <input type="hidden" id="uId">
+    <div class="field"><label>Tên đăng nhập</label><input id="uName" required maxlength="50"></div>
+    <div class="field"><label>Quyền</label><select id="uRole"><option value="viewer">Chỉ xem</option><option value="admin">Quản trị (full quyền)</option></select></div>
+    <div class="field"><label id="uPwLabel">Mật khẩu (tối thiểu 6 ký tự)</label><input id="uPw" type="password" autocomplete="new-password"></div>
+    <div class="field"><label><input type="checkbox" id="uMust" style="width:auto"> Bắt buộc đổi mật khẩu khi đăng nhập</label></div>
+    <div class="modal-actions">
+      <button type="button" onclick="closeModal('userModal')">Huỷ</button>
+      <button type="submit" class="btn-primary">Lưu</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let users = [];
+async function load() {
+  users = (await api('/api/users')).users;
+  rows.innerHTML = users.map(u => `<tr><td><b>${esc(u.username)}</b></td>
+    <td>${u.role === 'admin' ? '<span class="badge b-up" style="background:#2563eb">Quản trị</span>' : '<span class="badge b-unknown">Chỉ xem</span>'}</td>
+    <td>${fmtTime(u.created_at)}</td>
+    <td><button class="btn-sm" onclick="openUser(${u.id})">Sửa</button>
+        <button class="btn-sm btn-danger" onclick="del(${u.id})">Xoá</button></td></tr>`).join('');
+}
+function openUser(id) {
+  const u = users.find(x => x.id === id);
+  uTitle.textContent = u ? 'Sửa tài khoản' : 'Thêm tài khoản';
+  uId.value = u ? u.id : ''; uName.value = u ? u.username : ''; uName.disabled = !!u;
+  uRole.value = u ? u.role : 'viewer'; uPw.value = ''; uPw.required = !u; uMust.checked = !u;
+  uPwLabel.textContent = u ? 'Mật khẩu mới (để trống nếu không đổi)' : 'Mật khẩu (tối thiểu 6 ký tự)';
+  openModal('userModal');
+}
+userForm.onsubmit = async e => {
+  e.preventDefault();
+  const body = { username: uName.value.trim(), role: uRole.value, password: uPw.value, must_change: uMust.checked };
+  try {
+    if (uId.value) await api('/api/users/' + uId.value, { method: 'PUT', body });
+    else await api('/api/users', { method: 'POST', body });
+    closeModal('userModal'); toast('Đã lưu', body.username); load();
+  } catch (err) { toast('Lỗi', err.message, 'err'); }
+};
+async function del(id) {
+  const u = users.find(x => x.id === id);
+  if (!confirm(`Xoá tài khoản ${u.username}?`)) return;
+  try { await api('/api/users/' + id, { method: 'DELETE' }); load(); } catch (err) { toast('Lỗi', err.message, 'err'); }
+}
+load();
+</script>
+{% endblock %}

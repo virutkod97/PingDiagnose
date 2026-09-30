@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Lịch sử cảnh báo{% endblock %}
+{% block content %}
+<h1>Lịch sử cảnh báo</h1>
+<div class="card">
+  <div class="form-row">
+    <div class="field"><label>Địa chỉ</label><select id="eHost"><option value="">Tất cả</option></select></div>
+    <div class="field"><label>Loại</label><select id="eType"><option value="">Tất cả</option><option value="down">Mất kết nối</option><option value="up">Phục hồi</option></select></div>
+  </div>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th style="width:170px">Thời điểm</th><th style="width:130px">Loại</th><th>Địa chỉ</th><th>Nội dung</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function load() {
+  const p = new URLSearchParams({ limit: 500 });
+  if (eHost.value) p.set('host_id', eHost.value);
+  if (eType.value) p.set('type', eType.value);
+  const d = await api('/api/events?' + p);
+  rows.innerHTML = d.events.length ? d.events.map(e => `<tr><td>${e.time}</td>
+    <td class="${e.type === 'down' ? 'ev-down' : 'ev-up'}">${e.type === 'down' ? '⚠ Mất kết nối' : '✅ Phục hồi'}</td>
+    <td>${esc(e.name || '')} (${esc(e.ip || '')})</td><td>${esc(e.message)}</td></tr>`).join('')
+    : '<tr><td colspan="4" class="muted">Chưa có cảnh báo.</td></tr>';
+}
+(async () => {
+  const hs = (await api('/api/hosts')).hosts;
+  eHost.innerHTML += hs.map(h => `<option value="${h.id}">${esc(h.name)} (${esc(h.ip)})</option>`).join('');
+  load();
+})();
+eHost.onchange = load; eType.onchange = load;
+window.onNewEvents = load;
+</script>
+{% endblock %}

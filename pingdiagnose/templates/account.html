@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Đổi mật khẩu{% endblock %}
+{% block content %}
+<h1>Đổi mật khẩu</h1>
+{% if user.must_change %}<div class="info-banner">Bạn cần đổi mật khẩu mặc định trước khi sử dụng hệ thống.</div>{% endif %}
+<div class="card" style="max-width:460px">
+  <form id="pwForm">
+    <div class="field" style="margin-bottom:12px"><label>Mật khẩu hiện tại</label><input type="password" id="oldPw" required autocomplete="current-password"></div>
+    <div class="field" style="margin-bottom:12px"><label>Mật khẩu mới (tối thiểu 6 ký tự)</label><input type="password" id="newPw" required minlength="6" autocomplete="new-password"></div>
+    <div class="field" style="margin-bottom:12px"><label>Nhập lại mật khẩu mới</label><input type="password" id="newPw2" required minlength="6" autocomplete="new-password"></div>
+    <button class="btn-primary" type="submit">Lưu</button>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('pwForm').onsubmit = async e => {
+  e.preventDefault();
+  const n = document.getElementById('newPw').value;
+  if (n !== document.getElementById('newPw2').value) return toast('Lỗi', 'Mật khẩu nhập lại không khớp', 'err');
+  try {
+    await api('/api/account/password', { method: 'POST', body: { old_password: document.getElementById('oldPw').value, new_password: n } });
+    toast('Thành công', 'Đã đổi mật khẩu');
+    setTimeout(() => location.href = '/', 800);
+  } catch (err) { toast('Lỗi', err.message, 'err'); }
+};
+</script>
+{% endblock %}

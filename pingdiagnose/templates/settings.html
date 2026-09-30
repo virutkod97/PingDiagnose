@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Cấu hình{% endblock %}
+{% block content %}
+<h1>Cấu hình giám sát</h1>
+{% if user.role != 'admin' %}<div class="info-banner">Tài khoản của bạn chỉ có quyền xem.</div>{% endif %}
+<div class="card" style="max-width:620px">
+  <form id="setForm">
+    <div class="field" style="margin-bottom:12px"><label>Chu kỳ ping (giây) – mặc định 180 = 3 phút</label><input type="number" id="interval_seconds" min="30" max="86400" required></div>
+    <div class="field" style="margin-bottom:12px"><label>Số gói ping mỗi chu kỳ – mặc định 2</label><input type="number" id="ping_count" min="1" max="10" required></div>
+    <div class="field" style="margin-bottom:12px"><label>Thời gian chờ mỗi gói (ms)</label><input type="number" id="ping_timeout_ms" min="100" max="10000" required></div>
+    <div class="field" style="margin-bottom:12px"><label>Số chu kỳ không phản hồi liên tiếp trước khi cảnh báo – mặc định 3 (= 9 phút)</label><input type="number" id="fail_threshold" min="1" max="100" required></div>
+    <div class="field" style="margin-bottom:12px"><label>Số ngày lưu dữ liệu (0 = không xoá)</label><input type="number" id="retention_days" min="0" max="3650" required></div>
+    <p class="muted" id="summary"></p>
+    {% if user.role == 'admin' %}<button class="btn-primary" type="submit">Lưu cấu hình</button>{% endif %}
+  </form>
+</div>
+<div class="card" style="max-width:620px">
+  <h2>Thông báo trình duyệt</h2>
+  <p class="muted">Trình duyệt chỉ cho phép thông báo hệ thống (popup góc màn hình) khi truy cập qua <b>HTTPS</b> hoặc <b>localhost</b>.
+  Khi truy cập bằng http://IP-máy-chủ, cảnh báo vẫn hiển thị trong trang kèm âm thanh. Xem README để bật HTTPS
+  (<code>PingDiagnose.exe config --https on</code>).</p>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const KEYS = ['interval_seconds', 'ping_count', 'ping_timeout_ms', 'fail_threshold', 'retention_days'];
+function summary() {
+  const i = +interval_seconds.value, t = +fail_threshold.value;
+  document.getElementById('summary').textContent =
+    `Mỗi ${Math.round(i / 6) / 10} phút gửi ${ping_count.value} gói ping tới mỗi địa chỉ. Cảnh báo khi không phản hồi ${t} chu kỳ liên tiếp (≈ ${Math.round(i * t / 6) / 10} phút).`;
+}
+(async () => {
+  const s = (await api('/api/settings')).settings;
+  KEYS.forEach(k => { const el = document.getElementById(k); el.value = s[k]; el.disabled = !APP.isAdmin; el.oninput = summary; });
+  summary();
+})();
+setForm.onsubmit = async e => {
+  e.preventDefault();
+  const body = {}; KEYS.forEach(k => body[k] = +document.getElementById(k).value);
+  try { await api('/api/settings', { method: 'PUT', body }); toast('Đã lưu', 'Cấu hình áp dụng từ chu kỳ kế tiếp'); }
+  catch (err) { toast('Lỗi', err.message, 'err'); }
+};
+</script>
+{% endblock %}

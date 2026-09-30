@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Đăng nhập - {{ app_name }}</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ version }}">
+</head>
+<body>
+<div class="login-wrap">
+  <form class="login-box" method="post">
+    <h1>{{ app_name }}</h1>
+    <p class="muted" style="text-align:center;margin-top:-10px">Hệ thống giám sát kết nối IP</p>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="field"><label>Tên đăng nhập</label><input name="username" autofocus required autocomplete="username"></div>
+    <div class="field"><label>Mật khẩu</label><input name="password" type="password" required autocomplete="current-password"></div>
+    <button class="btn-primary" type="submit">Đăng nhập</button>
+  </form>
+</div>
+</body>
+</html>

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token }}">
+<title>{% block title %}{% endblock %} - {{ app_name }}</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ version }}">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">{{ app_name }}<small>Giám sát kết nối IP · v{{ version }}</small></div>
+    <nav class="nav">
+      {% if not user.must_change %}
+      <a href="/" class="{{ 'active' if page == 'dashboard' }}">📊 Dashboard</a>
+      <a href="/hosts" class="{{ 'active' if page == 'hosts' }}">🖧 Địa chỉ giám sát</a>
+      <a href="/reports" class="{{ 'active' if page == 'reports' }}">📈 Báo cáo</a>
+      <a href="/events" class="{{ 'active' if page == 'events' }}">🔔 Lịch sử cảnh báo</a>
+      {% if user.role == 'admin' %}<a href="/users" class="{{ 'active' if page == 'users' }}">👤 Tài khoản</a>{% endif %}
+      <a href="/settings" class="{{ 'active' if page == 'settings' }}">⚙️ Cấu hình</a>
+      {% endif %}
+      <a href="/account" class="{{ 'active' if page == 'account' }}">🔑 Đổi mật khẩu</a>
+    </nav>
+    <div class="side-foot">
+      <div>{{ user.username }}<span class="role">{{ 'Quản trị' if user.role == 'admin' else 'Chỉ xem' }}</span></div>
+      <div class="notify-state" id="notifyState"></div>
+      <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Đăng xuất</button></form>
+    </div>
+  </aside>
+  <main class="main">
+    <div id="downBanner" class="alert-banner hidden"></div>
+    {% block content %}{% endblock %}
+  </main>
+</div>
+<div id="toasts"></div>
+<script>window.APP = {role: "{{ user.role }}", isAdmin: {{ 'true' if user.role == 'admin' else 'false' }}, mustChange: {{ 'true' if user.must_change else 'false' }}};</script>
+<script src="{{ url_for('static', filename='app.js') }}?v={{ version }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

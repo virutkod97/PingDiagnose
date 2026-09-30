@@ -1,0 +1,75 @@
+name: Build Windows exe
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-build.txt
+
+      - name: Unit tests (bao gom ping 127.0.0.1 bang ICMP API cua Windows)
+        env:
+          REQUIRE_PING: "1"
+        run: python -m pytest -v tests
+
+      - name: Build exe (PyInstaller)
+        run: pyinstaller --noconfirm --clean PingDiagnose.spec
+
+      - name: Assemble package
+        shell: pwsh
+        run: |
+          Copy-Item install.bat, uninstall.bat, README.md dist/PingDiagnose/
+          Compress-Archive -Force -Path dist/PingDiagnose -DestinationPath dist/PingDiagnose-win64.zip
+
+      - name: Smoke test - chay dang Windows Service
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path dist/PingDiagnose/PingDiagnose.exe).Path
+          & $exe config --port 8765
+          sc.exe create PingDiagnoseCI binPath= "`"$exe`"" start= demand
+          sc.exe start PingDiagnoseCI
+          $ok = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep -Seconds 2
+            try {
+              $r = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765/login
+              if ($r.StatusCode -eq 200) { $ok = $true; break }
+            } catch { }
+          }
+          sc.exe query PingDiagnoseCI
+          $log = "$env:ProgramData\PingDiagnose\logs\pingdiagnose.log"
+          if (Test-Path $log) { Get-Content $log -Tail 30 }
+          sc.exe stop PingDiagnoseCI
+          Start-Sleep -Seconds 5
+          sc.exe query PingDiagnoseCI
+          sc.exe delete PingDiagnoseCI
+          if (-not $ok) { throw "Service khong phan hoi HTTP" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PingDiagnose-win64
+          path: dist/PingDiagnose-win64.zip
+
+      - name: Release (khi push tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/PingDiagnose-win64.zip

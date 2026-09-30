@@ -1,0 +1,4 @@
+flask>=3.0,<4
+cheroot>=10
+cryptography>=42
+pywin32>=306; sys_platform == "win32"
