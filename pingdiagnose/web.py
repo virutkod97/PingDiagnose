@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 import logging
 import secrets
 import time
@@ -10,7 +11,7 @@ from flask import (Flask, Response, abort, g, jsonify, redirect, render_template
                    session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import certs, db, webpush
+from . import bus, certs, db, webpush
 from .config import APP_NAME, VERSION, load_config, resource_dir, secret_key
 from .pinger import ping, valid_target
 
@@ -594,6 +595,53 @@ def create_app(monitor=None):
     def install_ca():
         return Response(certs.install_ca_bat(), mimetype="application/octet-stream",
                         headers={"Content-Disposition": "attachment; filename=PingDiagnose-cai-chung-chi.bat"})
+
+    @app.route("/api/stream")
+    @login_required
+    def api_stream():
+        after = request.headers.get("Last-Event-ID", type=int)
+        if after is None:
+            after = request.args.get("after", type=int)
+        if after is None or after < 0:
+            after = db.query_one("SELECT MAX(id) m FROM events")["m"] or 0
+
+        def state():
+            down = db.query("SELECT id, name, ip, last_change FROM hosts WHERE enabled = 1 AND status = 'down'")
+            return f"event: state\ndata: {json.dumps({'down': down}, ensure_ascii=False)}\n\n"
+
+        def gen():
+            last = after
+            yield "retry: 3000\n\n"
+            yield state()
+            end = time.time() + 300
+            while time.time() < end and not bus.stopping.is_set():
+                seq = bus.current()
+                rows = db.query("SELECT e.*, h.name, h.ip FROM events e LEFT JOIN hosts h ON h.id = e.host_id "
+                                "WHERE e.id > ? ORDER BY e.id LIMIT 100", (last,))
+                for e in rows:
+                    last = e["id"]
+                    yield f"id: {e['id']}\nevent: alert\ndata: {json.dumps(fmt_event(e), ensure_ascii=False)}\n\n"
+                if rows:
+                    yield state()
+                if bus.wait(seq, 15) == seq:
+                    yield ": ping\n\n"
+
+        return Response(gen(), mimetype="text/event-stream",
+                        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    @app.route("/client-policy.reg")
+    def client_policy():
+        origin = request.host_url.rstrip("/")
+        keys = [r"Microsoft\Edge\SleepingTabsBlockedForUrls", r"Google\Chrome\TabDiscardExceptions"]
+        if origin.startswith("http://"):
+            keys += [r"Microsoft\Edge\OverrideSecurityRestrictionsOnInsecureOrigin",
+                     r"Google\Chrome\OverrideSecurityRestrictionsOnInsecureOrigin"]
+        lines = ["Windows Registry Editor Version 5.00", ""]
+        for key in keys:
+            lines += [f"[HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\{key}]", f'"901"="{origin}"', ""]
+        data = "\ufeff" + "\r\n".join(lines) + "\r\n"
+        return Response(data.encode("utf-16-le"), mimetype="application/octet-stream",
+                        headers={"Content-Disposition": "attachment; filename=PingDiagnose-may-tram.reg"})
 
     @app.route("/api/push/public-key")
     @login_required

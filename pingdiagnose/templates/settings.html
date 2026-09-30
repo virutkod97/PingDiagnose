@@ -20,20 +20,29 @@
   <div id="pushError" class="alert-banner hidden"></div>
   <div class="form-row">
     <button class="btn-primary hidden" id="pOn">🔔 Bật thông báo</button>
-    <button class="hidden" id="pTest">Gửi thông báo thử</button>
-    <button class="hidden" id="pRe">Đăng ký lại</button>
-    <button class="hidden btn-danger" id="pOff">Tắt trên thiết bị này</button>
+    <button class="hidden" id="pLocal">Thử thông báo trên máy này</button>
+    <button class="hidden" id="pNet">Bật thêm thông báo qua Internet</button>
+    <button class="hidden" id="pTest">Gửi thử qua Internet</button>
+    <button class="hidden btn-danger" id="pOff">Tắt thông báo qua Internet</button>
   </div>
   <div class="muted">
-    <p><b>Cách hoạt động:</b> khi có IP mất kết nối, máy chủ gửi thông báo đẩy (Web Push) tới mọi thiết bị đã bật. Thông báo hiện ở góc màn hình kể cả khi đã đóng trang, chỉ cần trình duyệt đang chạy.</p>
-    <p><b>Lần đầu trên mỗi máy tính:</b></p>
+    <p><b>Hai cách nhận cảnh báo:</b></p>
+    <ul>
+      <li><b>Mạng nội bộ (không cần Internet):</b> giữ một tab PingDiagnose mở (thu nhỏ cũng được). Máy chủ đẩy cảnh báo ngay qua kết nối trực tiếp,
+        trình duyệt hiện thông báo ở góc màn hình Windows kèm âm thanh.</li>
+      <li><b>Qua Internet (Web Push):</b> nhận cả khi đã đóng tab. Cần máy chủ và máy trạm ra được Internet.</li>
+    </ul>
+    <p><b>Cài đặt lần đầu trên mỗi máy trạm:</b></p>
     <ol>
-      <li>Cài chứng chỉ của PingDiagnose để trình duyệt tin cậy HTTPS: tải và chạy <a href="/install-ca.bat">PingDiagnose-cai-chung-chi.bat</a>, bấm <b>Yes</b> khi Windows hỏi.
-        (Cách khác: tải <a href="/ca.crt">ca.crt</a> → mở → <i>Install Certificate</i> → <i>Trusted Root Certification Authorities</i>.)</li>
-      <li>Đóng hết cửa sổ trình duyệt rồi mở lại trang này. Thanh địa chỉ không còn cảnh báo "Không bảo mật".</li>
-      <li>Bấm <b>Bật thông báo</b> → <b>Cho phép</b>, rồi bấm <b>Gửi thông báo thử</b>.</li>
+      <li>Cài chứng chỉ HTTPS: tải và chạy <a href="/install-ca.bat">PingDiagnose-cai-chung-chi.bat</a>, bấm <b>Yes</b>.
+        (Hoặc tải <a href="/ca.crt">ca.crt</a> → mở → <i>Install Certificate</i> → <i>Trusted Root Certification Authorities</i>.)</li>
+      <li>Để trình duyệt không cho tab PingDiagnose "ngủ": tải <a href="/client-policy.reg">PingDiagnose-may-tram.reg</a>, mở bằng quyền admin → <b>Yes</b>.
+        (Hoặc thêm trang này vào Edge: <i>Settings → System and performance → Never put these sites to sleep</i>;
+        Chrome: <i>Settings → Performance → Always keep these sites active</i>.)</li>
+      <li>Đóng hết cửa sổ trình duyệt, mở lại trang này, bấm <b>Bật thông báo</b> → <b>Cho phép</b> → <b>Thử thông báo trên máy này</b>.</li>
+      <li>Windows: <i>Settings → System → Notifications</i> bật cho Edge/Chrome, tắt <i>Do not disturb</i>.</li>
     </ol>
-    <p>Nên dùng Microsoft Edge hoặc Google Chrome, không dùng chế độ ẩn danh. Trên Windows, bật thông báo cho trình duyệt trong <i>Settings → System → Notifications</i> và tắt <i>Do not disturb</i>.</p>
+    <p>Nếu dùng <code>http://</code> thay vì https: file .reg ở bước 2 (tải khi đang mở bằng http) đã kèm chính sách cho phép thông báo trên địa chỉ http này, không cần cài chứng chỉ.</p>
   </div>
 </div>
 
@@ -66,23 +75,28 @@ function summary() {
   summary();
 })();
 const PUSH_DESC = {
-  insecure: 'Trang đang mở bằng HTTP. Trình duyệt chỉ cho nhận thông báo khi mở bằng <b>https://</b>. Hãy truy cập ' + esc('https://' + location.hostname + ':' + (location.port || '')) + '.',
-  unsupported: 'Trình duyệt này không hỗ trợ thông báo đẩy. Dùng Microsoft Edge hoặc Google Chrome bản mới.',
+  insecure: 'Trang đang mở bằng HTTP nên trình duyệt chặn thông báo ở góc màn hình, chỉ có cảnh báo trong trang. Mở bằng <b>https://</b> hoặc cài file .reg ở bước 2.',
+  unsupported: 'Trình duyệt này không hỗ trợ thông báo. Dùng Microsoft Edge hoặc Google Chrome bản mới.',
   denied: 'Thông báo đang bị chặn. Bấm biểu tượng ổ khoá cạnh thanh địa chỉ → <b>Thông báo</b> → <b>Cho phép</b>, rồi tải lại trang.',
   default: 'Chưa bật thông báo trên thiết bị này.',
-  off: 'Đã cho phép nhưng thiết bị chưa đăng ký nhận thông báo. Bấm <b>Bật thông báo</b>.',
-  on: '<span class="ev-up">✅ Thiết bị này đang nhận thông báo.</span>',
+  off: '<span class="ev-up">✅ Đang nhận thông báo trong mạng nội bộ khi trang đang mở.</span> Chưa bật thông báo qua Internet.',
+  on: '<span class="ev-up">✅ Đang nhận thông báo: mạng nội bộ (khi mở trang) và qua Internet (cả khi đóng trang).</span>',
 };
 async function renderPush() {
   const s = await Push.state();
   pushStateText.innerHTML = PUSH_DESC[s];
-  pOn.classList.toggle('hidden', !['default', 'off'].includes(s));
+  pOn.classList.toggle('hidden', s !== 'default');
+  pLocal.classList.toggle('hidden', !['off', 'on'].includes(s));
+  pNet.classList.toggle('hidden', s !== 'off');
   pTest.classList.toggle('hidden', s !== 'on');
-  pRe.classList.toggle('hidden', s !== 'on');
   pOff.classList.toggle('hidden', s !== 'on');
 }
 pOn.onclick = () => { pushError.classList.add('hidden'); Push.turnOn(renderPush); };
-pRe.onclick = () => { pushError.classList.add('hidden'); Push.turnOn(renderPush); };
+pNet.onclick = () => { pushError.classList.add('hidden'); Push.turnOn(renderPush); };
+pLocal.onclick = async () => {
+  const ok = await Alerts.systemNotify('PingDiagnose', 'Thông báo thử: máy này đã nhận được cảnh báo trong mạng nội bộ.', 'pd-local-test', false);
+  if (!ok) toast('Không hiện được thông báo', 'Kiểm tra quyền thông báo của trình duyệt và Windows.', 'err');
+};
 pTest.onclick = () => Push.test().then(loadDevices).catch(e => toast('Lỗi', e.message, 'err'));
 pOff.onclick = async () => { await Push.disable(); renderPush(); renderPushSide(); loadDevices(); };
 renderPush();

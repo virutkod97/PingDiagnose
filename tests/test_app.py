@@ -112,3 +112,31 @@ def test_ping_localhost():
     assert r.sent == 2
     if os.environ.get("REQUIRE_PING"):
         assert r.received == 2, r.to_dict()
+
+
+def test_stream(client):
+    import json
+    import threading
+    tok = setup_admin(client)
+    client.post("/api/hosts", json={"ip": "10.8.8.8", "name": "s"}, headers={"X-CSRF-Token": tok})
+    from pingdiagnose import bus, db
+    from pingdiagnose.monitor import process_result
+    from pingdiagnose.pinger import PingResult
+    r = client.get("/api/stream?after=0", buffered=False)
+    assert r.mimetype == "text/event-stream"
+    it = (c.decode() if isinstance(c, bytes) else c for c in r.response)
+    assert next(it).startswith("retry:")
+    assert "event: state" in next(it)
+
+    def fire():
+        time.sleep(0.3)
+        for _ in range(3):
+            process_result(db.query_one("SELECT * FROM hosts"), PingResult(sent=2, received=0), 3)
+        bus.publish()
+    threading.Thread(target=fire).start()
+    msg = next(it)
+    while "event: alert" not in msg:
+        msg = next(it)
+    data = json.loads(msg.split("data: ", 1)[1])
+    assert data["type"] == "down" and data["ip"] == "10.8.8.8" and msg.startswith(f"id: {data['id']}")
+    r.close()

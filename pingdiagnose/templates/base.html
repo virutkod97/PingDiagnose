@@ -25,6 +25,7 @@
     </nav>
     <div class="side-foot">
       <div>{{ user.username }}<span class="role">{{ 'Quản trị' if user.role == 'admin' else 'Chỉ xem' }}</span></div>
+      <div class="notify-state" id="liveState"></div>
       <div class="notify-state" id="notifyState"></div>
       <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Đăng xuất</button></form>
     </div>

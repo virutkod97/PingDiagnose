@@ -10,7 +10,7 @@ qua trình duyệt, có dashboard và báo cáo thống kê. Viết bằng Pytho
 |---|-----------|----------|
 | 1 | Khai báo IP giám sát | Thêm / sửa / xoá / tạm dừng, nhập hàng loạt (`IP, Tên, Mô tả` mỗi dòng), nút "Ping thử" |
 | 2 | Ping định kỳ | Mặc định **3 phút** một lần, **2 gói ping** mỗi địa chỉ (ping song song, dùng ICMP API của Windows) |
-| 3 | Cảnh báo | Không phản hồi **3 chu kỳ liên tiếp (9 phút)** → **thông báo đẩy (Web Push)** hiện ở góc màn hình kể cả khi đã đóng trang; khi đang mở trang có thêm popup, âm thanh, banner đỏ. Có thông báo khi phục hồi |
+| 3 | Cảnh báo | Không phản hồi **3 chu kỳ liên tiếp (9 phút)** → thông báo ở góc màn hình Windows + âm thanh + banner đỏ. **Không cần Internet** khi giữ tab mở; có Internet thì nhận cả khi đã đóng tab (Web Push). Có thông báo khi phục hồi |
 | 4 | Dashboard | Số địa chỉ hoạt động / lỗi / mất kết nối, tỷ lệ kết nối & tỷ lệ gói nhận 24h, biểu đồ theo giờ, tỷ lệ 24h/7 ngày từng IP |
 | 5 | Báo cáo | Chọn IP + khoảng ngày, nhóm theo giờ/ngày: biểu đồ, bảng thống kê từng IP (tỷ lệ kết nối, gói nhận, RTT, số lần cảnh báo, thời gian mất kết nối ước tính), danh sách sự kiện, **xuất CSV (mở bằng Excel)**, in |
 | 6 | Phân quyền | **Quản trị** (full quyền) và **Chỉ xem** |
@@ -55,24 +55,32 @@ PingDiagnose.exe cert                      :: cấp lại chứng chỉ, in đư
 PingDiagnose.exe reset-admin               :: quên mật khẩu: đặt lại admin/admin
 ```
 
-## Thông báo trình duyệt (Web Push)
+## Thông báo trình duyệt
 
-Cách làm giống WorkPing: trang đăng ký **service worker** (`/sw.js`), trình duyệt đăng ký nhận push với dịch vụ của hãng
-(Google cho Chrome, Microsoft cho Edge, Mozilla cho Firefox), máy chủ gửi thông báo đã mã hoá (chuẩn Web Push, khoá VAPID tự sinh).
-Thông báo hiện ở góc màn hình **kể cả khi đã đóng tab**, chỉ cần trình duyệt đang chạy.
+Có hai kênh, chạy song song, cùng một cảnh báo không bị hiện hai lần:
 
-Trình duyệt chỉ cho phép việc này trên **HTTPS có chứng chỉ được tin cậy**. Vì mạng nội bộ thường không có tên miền,
-PingDiagnose tự tạo một CA nội bộ và cấp chứng chỉ cho tên máy + mọi IP của máy chủ (tự cấp lại khi IP đổi).
+| Kênh | Cần Internet | Khi nào nhận |
+|---|---|---|
+| **Mạng nội bộ** (SSE) | Không | Khi có ít nhất một tab PingDiagnose đang mở (thu nhỏ/ở tab khác vẫn nhận) |
+| **Web Push** (giống WorkPing) | Có, cả máy chủ và máy trạm | Cả khi đã đóng tab, chỉ cần trình duyệt đang chạy |
+
+Kênh mạng nội bộ: trình duyệt giữ một kết nối tới máy chủ, máy chủ đẩy cảnh báo ngay khi phát hiện, trang hiện thông báo Windows
+qua service worker. Trình duyệt chỉ cho phép thông báo này trên **HTTPS được tin cậy** (PingDiagnose tự tạo CA nội bộ, cài 1 lần,
+không cần Internet), hoặc trên `http://` nếu máy trạm được cấu hình chính sách cho phép.
 
 **Trên mỗi máy trạm (làm 1 lần):**
 1. Mở `https://IP-máy-chủ:8443` (bỏ qua cảnh báo lần đầu), bấm **Cài chứng chỉ cho máy này** ở trang đăng nhập →
-   chạy file `PingDiagnose-cai-chung-chi.bat` → bấm **Yes**. (Hoặc tải `/ca.crt` → Install Certificate → Trusted Root Certification Authorities.)
-2. Đóng hết cửa sổ trình duyệt, mở lại → thanh địa chỉ không còn cảnh báo.
-3. Đăng nhập → **Bật thông báo** (góc trái dưới hoặc trang Cấu hình) → **Cho phép** → **Gửi thông báo thử**.
+   chạy file `PingDiagnose-cai-chung-chi.bat` → **Yes**.
+2. Vào **Cấu hình** → tải `PingDiagnose-may-tram.reg` → mở (quyền admin) → **Yes**. File này cấu hình Edge/Chrome không cho tab
+   PingDiagnose "ngủ" (Sleeping tabs / Memory Saver) để không lỡ cảnh báo. Nếu tải khi đang mở bằng `http://` thì file kèm luôn
+   chính sách cho phép thông báo trên địa chỉ http đó (khi đó không cần bước 1).
+3. Đóng hết cửa sổ trình duyệt, mở lại → đăng nhập → **Bật thông báo** → **Cho phép** → **Thử thông báo trên máy này**.
+4. Windows: Settings → System → Notifications bật cho Edge/Chrome, tắt Do not disturb.
 
-Có thể cài CA hàng loạt qua Group Policy (Computer Configuration → Windows Settings → Security Settings → Public Key Policies →
-Trusted Root Certification Authorities → import `C:\ProgramData\PingDiagnose\ca.crt`).
+Có thể triển khai hàng loạt qua Group Policy: import `C:\ProgramData\PingDiagnose\ca.crt` vào Trusted Root Certification Authorities,
+và đặt policy `SleepingTabsBlockedForUrls` (Edge) / `TabDiscardExceptions` (Chrome) cho địa chỉ PingDiagnose.
 
+**Web Push (tuỳ chọn, khi có Internet):** bấm **Bật thêm thông báo qua Internet** trong Cấu hình.
 **Máy chủ phải ra được Internet** (cổng 443) tới `fcm.googleapis.com`, `*.notify.windows.com`, `updates.push.services.mozilla.com`.
 Qua proxy: `PingDiagnose.exe config --proxy http://proxy:port` rồi khởi động lại service. Trang **Cấu hình** (quản trị) có nút kiểm tra
 kết nối và danh sách thiết bị kèm lỗi gửi gần nhất.

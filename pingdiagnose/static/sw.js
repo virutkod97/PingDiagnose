@@ -14,7 +14,6 @@ self.addEventListener('push', (event) => {
       icon: '/static/icon.png',
       badge: '/static/icon.png',
       tag: d.tag || undefined,
-      renotify: !!d.tag,
       requireInteraction: (d.title || '').startsWith('⚠'),
       data: { url: d.url || '/' },
     });

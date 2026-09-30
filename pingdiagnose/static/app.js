@@ -168,13 +168,6 @@ const Push = {
     await api('/api/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON(), userAgent: this.ua().slice(0, 300) } });
   },
 
-  async enable() {
-    const perm = await Notification.requestPermission();
-    if (perm !== 'granted') return perm === 'denied' ? 'denied' : 'default';
-    await this.subscribe(true);
-    return 'on';
-  },
-
   async disable() {
     const reg = await navigator.serviceWorker.getRegistration();
     const sub = reg && await reg.pushManager.getSubscription();
@@ -203,7 +196,7 @@ const Push = {
 
   showError(e) {
     const box = document.getElementById('pushError');
-    const html = `<b>Chưa bật được thông báo:</b> ${esc(e.message || String(e))}` +
+    const html = `${esc(e.message || String(e))}` +
       (e.hint ? `<div style="margin-top:6px"><b>Cách xử lý:</b> ${e instanceof PushError && e.hint.includes('<a ') ? e.hint : esc(e.hint)}</div>` : '');
     if (box) { box.innerHTML = html; box.classList.remove('hidden'); }
     else toast('Chưa bật được thông báo', (e.message || '') + (e.hint ? ' ' + e.hint.replace(/<[^>]+>/g, '') : ''), 'err', 20000);
@@ -211,9 +204,19 @@ const Push = {
 
   async turnOn(after) {
     try {
-      const s = await this.enable();
-      if (s === 'on') toast('Đã bật thông báo', 'Thiết bị này sẽ nhận cảnh báo kể cả khi đã đóng trang.', 'up');
-      else if (s === 'denied') toast('Thông báo bị chặn', 'Bấm biểu tượng ổ khoá cạnh thanh địa chỉ → Thông báo → Cho phép.', 'err', 15000);
+      const perm = await Notification.requestPermission();
+      if (perm === 'granted') {
+        toast('Đã bật thông báo', 'Cảnh báo sẽ hiện ở góc màn hình khi trang PingDiagnose đang mở (kể cả thu nhỏ).', 'up');
+        try {
+          await this.subscribe(true);
+          toast('Đã bật thông báo qua Internet', 'Thiết bị nhận cảnh báo kể cả khi đã đóng trang.', 'up');
+        } catch (e) {
+          e.message = 'Chưa bật được thông báo qua Internet (vẫn nhận trong mạng nội bộ khi mở trang). ' + (e.message || '');
+          this.showError(e);
+        }
+      } else if (perm === 'denied') {
+        toast('Thông báo bị chặn', 'Bấm biểu tượng ổ khoá cạnh thanh địa chỉ → Thông báo → Cho phép.', 'err', 15000);
+      }
     } catch (e) {
       this.showError(e);
     }
@@ -223,12 +226,12 @@ const Push = {
 };
 
 const PUSH_TEXT = {
-  insecure: '⚠ Trang chưa chạy HTTPS, không nhận được thông báo',
-  unsupported: '⚠ Trình duyệt không hỗ trợ thông báo đẩy',
+  insecure: '⚠ Trang HTTP: chỉ cảnh báo trong trang',
+  unsupported: '⚠ Trình duyệt không hỗ trợ thông báo',
   denied: '🔕 Thông báo đang bị chặn',
   default: '🔔 Chưa bật thông báo',
-  off: '🔔 Chưa bật thông báo',
-  on: '🔔 Đã bật thông báo',
+  off: '🔔 Thông báo khi mở trang (mạng nội bộ)',
+  on: '🔔 Thông báo: mạng nội bộ + Internet',
 };
 
 async function renderPushSide() {
@@ -237,7 +240,7 @@ async function renderPushSide() {
   const s = await Push.state();
   const color = s === 'on' ? '#86efac' : s === 'default' || s === 'off' ? '#fde68a' : '#fca5a5';
   el.innerHTML = `<div style="margin-top:6px;color:${color}">${PUSH_TEXT[s]}</div>` +
-    (s === 'default' || s === 'off' ? '<button id="btnNotify" style="margin-top:6px">Bật thông báo</button>' : '') +
+    (s === 'default' ? '<button id="btnNotify" style="margin-top:6px">Bật thông báo</button>' : '') +
     (s !== 'on' ? '<div style="margin-top:4px"><a href="/settings#push" style="color:#93c5fd">Hướng dẫn</a></div>' : '');
   const b = document.getElementById('btnNotify');
   if (b) b.onclick = () => Push.turnOn();
@@ -246,6 +249,15 @@ async function renderPushSide() {
 
 const Alerts = {
   key: 'pd_last_event',
+  lastId: null,
+  live: false,
+  es: null,
+
+  save(id) {
+    if (this.lastId !== null && id <= this.lastId) return;
+    this.lastId = id;
+    try { localStorage.setItem(this.key, String(id)); } catch (e) { }
+  },
 
   beep() {
     try {
@@ -260,9 +272,30 @@ const Alerts = {
     } catch (e) { }
   },
 
-  show(ev) {
+  async systemNotify(title, body, tag, sticky) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return false;
+    const opts = { body, tag, icon: '/static/icon.png', badge: '/static/icon.png', requireInteraction: sticky, data: { url: '/' } };
+    try {
+      const reg = 'serviceWorker' in navigator && await navigator.serviceWorker.getRegistration();
+      if (reg) { await reg.showNotification(title, opts); return true; }
+    } catch (e) { }
+    try {
+      const n = new Notification(title, opts);
+      n.onclick = () => { window.focus(); n.close(); };
+      return true;
+    } catch (e) { return false; }
+  },
+
+  handle(ev) {
+    if (this.lastId !== null && ev.id <= this.lastId) return;
+    this.save(ev.id);
+    if (Date.now() / 1000 - ev.ts > 900) return;
     const down = ev.type === 'down';
-    toast(down ? '⚠ Mất kết nối: ' + (ev.ip || '') : '✅ Đã phục hồi: ' + (ev.ip || ''), ev.message, down ? 'down' : 'up', down ? 0 : 10000);
+    const title = (down ? '⚠ Mất kết nối: ' : '✅ Đã phục hồi: ') + `${ev.name || ''} (${ev.ip || ''})`;
+    toast(title, ev.message, down ? 'down' : 'up', down ? 0 : 10000);
+    if (down) this.beep();
+    this.systemNotify(title, ev.message, 'pd-ev-' + ev.id, down);
+    if (window.onNewEvents) window.onNewEvents([ev]);
   },
 
   renderDown(down) {
@@ -275,33 +308,51 @@ const Alerts = {
     document.title = `(${down.length}) ` + base;
   },
 
+  setLive(v) {
+    this.live = v;
+    const el = document.getElementById('liveState');
+    if (el) el.innerHTML = v ? '<span style="color:#86efac">● Đang nhận cảnh báo trực tiếp</span>'
+      : '<span style="color:#fca5a5">● Mất kết nối tới máy chủ, đang thử lại...</span>';
+  },
+
   async poll() {
-    let last = null;
-    try { last = parseInt(localStorage.getItem(this.key)); } catch (e) { }
     try {
-      const known = Number.isFinite(last);
-      const d = await api('/api/events?after=' + (known ? last : 2147483647));
-      const fresh = known && last <= d.last_id ? d.events : [];
-      fresh.forEach(ev => this.show(ev));
-      if (fresh.some(ev => ev.type === 'down')) this.beep();
-      if (fresh.length && window.onNewEvents) window.onNewEvents(fresh);
-      const next = fresh.length ? fresh[fresh.length - 1].id : d.last_id;
-      try { localStorage.setItem(this.key, String(next)); } catch (e) { }
+      const d = await api('/api/events?after=' + (this.lastId ?? 2147483647));
+      if (this.lastId === null || this.lastId > d.last_id) {
+        this.lastId = null;
+        this.save(d.last_id);
+      } else {
+        d.events.forEach(ev => this.handle(ev));
+      }
       this.renderDown(d.down);
     } catch (e) { }
+  },
+
+  connect() {
+    if (!('EventSource' in window)) { setInterval(() => this.poll(), 20000); return; }
+    this.es = new EventSource('/api/stream?after=' + this.lastId);
+    this.es.onopen = () => this.setLive(true);
+    this.es.onerror = () => this.setLive(false);
+    this.es.addEventListener('alert', e => this.handle(JSON.parse(e.data)));
+    this.es.addEventListener('state', e => { this.setLive(true); this.renderDown(JSON.parse(e.data).down); });
+  },
+
+  async start() {
+    try { const v = parseInt(localStorage.getItem(this.key)); if (Number.isFinite(v)) this.lastId = v; } catch (e) { }
+    await this.poll();
+    this.connect();
+    setInterval(() => this.poll(), 60000);
   },
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
   if (window.isSecureContext && 'serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => undefined);
-    navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.type === 'push') Alerts.poll(); });
   }
   renderPushSide();
   if (window.APP.mustChange) return;
   Push.sync();
-  Alerts.poll();
-  setInterval(() => Alerts.poll(), 20000);
+  Alerts.start();
 });
 
 document.addEventListener('keydown', e => {

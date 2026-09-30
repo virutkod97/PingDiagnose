@@ -129,10 +129,10 @@ def test_notify_groups(data, monkeypatch):
     from pingdiagnose import webpush
     sent = []
     monkeypatch.setattr(webpush, "send", lambda m, user_id=None: sent.append(m) or [])
-    webpush.notify_events([("down", "a", "A"), ("down", "b", "B"), ("up", "c", "C")])
-    assert len(sent) == 3
+    webpush.notify_events([("down", "a", "A", 1), ("down", "b", "B", 2), ("up", "c", "C", 3)])
+    assert len(sent) == 3 and sent[0]["tag"] == "pd-ev-1"
     sent.clear()
-    webpush.notify_events([("down", str(i), f"H{i}") for i in range(5)])
+    webpush.notify_events([("down", str(i), f"H{i}", i) for i in range(5)])
     assert len(sent) == 1 and "5 địa chỉ" in sent[0]["title"]
 
 

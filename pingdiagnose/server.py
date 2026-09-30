@@ -5,7 +5,7 @@ from logging.handlers import RotatingFileHandler
 
 from cheroot import wsgi
 
-from . import certs, db
+from . import bus, certs, db
 from .config import APP_NAME, VERSION, data_dir, load_config
 from .monitor import Monitor
 from .web import create_app
@@ -40,7 +40,7 @@ class AppServer:
         db.init_db()
         self.monitor = Monitor()
         app = create_app(self.monitor)
-        self.httpd = wsgi.Server((cfg["host"], int(cfg["port"])), app, numthreads=16,
+        self.httpd = wsgi.Server((cfg["host"], int(cfg["port"])), app, numthreads=128,
                                  server_name=f"{APP_NAME}/{VERSION}")
         scheme = "http"
         if cfg.get("https"):
@@ -61,6 +61,7 @@ class AppServer:
 
     def stop(self):
         log.info("Đang dừng...")
+        bus.shutdown()
         if self.httpd:
             self.httpd.stop()
         if self.monitor:

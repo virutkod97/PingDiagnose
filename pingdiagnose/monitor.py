@@ -3,7 +3,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from . import db, webpush
+from . import bus, db, webpush
 from .pinger import ping
 
 log = logging.getLogger("pingdiagnose.monitor")
@@ -43,8 +43,9 @@ def process_result(host, result, threshold, now=None):
                      "last_change=CASE WHEN ? THEN ? ELSE last_change END WHERE id=?",
                      (new_status, fails, now, result.rtt_avg, 1 if changed else 0, now, host["id"]))
         if event:
-            conn.execute("INSERT INTO events(host_id, ts, type, message) VALUES (?,?,?,?)",
-                         (host["id"], now, event[0], event[1]))
+            cur = conn.execute("INSERT INTO events(host_id, ts, type, message) VALUES (?,?,?,?)",
+                               (host["id"], now, event[0], event[1]))
+            event = (event[0], event[1], cur.lastrowid)
     if event:
         log.warning(event[1])
     return new_status, event
@@ -83,10 +84,11 @@ class Monitor:
                 if cur and cur["enabled"]:
                     _, ev = process_result(cur, res, threshold, now)
                     if ev:
-                        events.append((ev[0], ev[1], f"{cur['name']} ({cur['ip']})"))
+                        events.append((ev[0], ev[1], f"{cur['name']} ({cur['ip']})", ev[2]))
             except Exception:
                 log.exception("Lỗi ghi kết quả %s", host["ip"])
         if events:
+            bus.publish()
             threading.Thread(target=webpush.notify_events, args=(events,), daemon=True).start()
         log.info("Hoàn tất chu kỳ: %d địa chỉ", len(hosts))
 

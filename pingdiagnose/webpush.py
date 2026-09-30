@@ -161,22 +161,15 @@ def send(data, user_id=None):
 
 
 def notify_events(events):
-    if not events:
-        return
-    downs = [e for e in events if e[0] == "down"]
-    ups = [e for e in events if e[0] == "up"]
     msgs = []
-    for kind, group, title in (("down", downs, "⚠ Mất kết nối"), ("up", ups, "✅ Đã phục hồi")):
-        if not group:
-            continue
+    for kind, title in (("down", "⚠ Mất kết nối"), ("up", "✅ Đã phục hồi")):
+        group = [e for e in events if e[0] == kind]
         if len(group) <= 3:
-            msgs += [{"title": f"{title}: {e[2]}", "body": e[1], "tag": f"pd-{kind}-{e[2]}", "url": "/"}
-                     for e in group]
+            msgs += [{"title": f"{title}: {e[2]}", "body": e[1], "tag": f"pd-ev-{e[3]}", "url": "/"} for e in group]
         else:
-            msgs.append({"title": f"{title}: {len(group)} địa chỉ", "tag": f"pd-{kind}-many", "url": "/",
+            msgs.append({"title": f"{title}: {len(group)} địa chỉ", "tag": f"pd-many-{group[0][3]}", "url": "/",
                          "body": ", ".join(e[2] for e in group[:10]) + ("..." if len(group) > 10 else "")})
     for m in msgs:
-        m["type"] = "alert"
         try:
             send(m)
         except Exception:
