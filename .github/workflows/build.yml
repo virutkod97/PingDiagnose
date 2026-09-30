@@ -53,8 +53,8 @@ jobs:
             Start-Sleep -Seconds 2
             try {
               $r = Invoke-WebRequest -UseBasicParsing https://localhost:8765/login
-              $sw = Invoke-WebRequest -UseBasicParsing https://localhost:8765/sw.js
-              if ($r.StatusCode -eq 200 -and $sw.StatusCode -eq 200) { $ok = $true; break }
+              $ca2 = Invoke-WebRequest -UseBasicParsing https://localhost:8765/ca.crt
+              if ($r.StatusCode -eq 200 -and $ca2.StatusCode -eq 200) { $ok = $true; break }
             } catch { $err = $_ }
           }
           if (-not $ok) { Write-Host "Loi: $err" }
