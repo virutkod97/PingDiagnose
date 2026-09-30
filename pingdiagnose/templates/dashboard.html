@@ -12,14 +12,18 @@
   <div class="kpi"><div class="label">Tỷ lệ gói nhận 24h</div><div class="value" id="kPacket">–</div></div>
 </div>
 
-<div class="grid two">
+<div class="grid three">
   <div class="card">
-    <h2>Tỷ lệ kết nối theo giờ (24h qua)</h2>
-    <div class="chart-box"><canvas id="trendChart"></canvas></div>
+    <h2>Tỷ lệ kết nối theo giờ</h2>
+    <div class="panel-body"><canvas id="trendChart"></canvas></div>
   </div>
   <div class="card">
     <h2>Trạng thái hiện tại</h2>
-    <div class="chart-box"><canvas id="statusChart"></canvas></div>
+    <div class="panel-body"><canvas id="statusChart"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="toolbar" style="margin-bottom:12px"><h2 style="margin:0">Cảnh báo gần đây</h2><a href="/events">Xem tất cả →</a></div>
+    <div class="panel-body scroll"><ul class="events" id="events"></ul></div>
   </div>
 </div>
 
@@ -34,6 +38,7 @@
         <option value="warning">Đang lỗi</option>
         <option value="up">Hoạt động</option>
         <option value="unknown">Chưa kiểm tra</option>
+        <option value="off">Tạm dừng</option>
       </select>
     </div>
   </div>
@@ -46,27 +51,30 @@
     <tbody id="hostRows"><tr><td colspan="8" class="muted">Đang tải...</td></tr></tbody>
   </table>
   </div>
-</div>
-
-<div class="card">
-  <div class="toolbar"><h2 style="margin:0">Cảnh báo gần đây</h2><a href="/events">Xem tất cả →</a></div>
-  <ul class="events" id="events"></ul>
+  <div class="pager" id="hostPager"></div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='chart.umd.min.js') }}"></script>
 <script>
-let trendChart, statusChart, data = null;
+let trendChart, statusChart, page = 1, size = 20;
 
-function renderHosts() {
-  if (!data) return;
-  const q = document.getElementById('filter').value.toLowerCase();
-  const st = document.getElementById('statusFilter').value;
-  const order = { down: 0, warning: 1, unknown: 2, up: 3 };
-  const rows = data.hosts
-    .filter(h => (!q || (h.name + ' ' + h.ip).toLowerCase().includes(q)) && (!st || (h.enabled && h.status === st)))
-    .sort((a, b) => (b.enabled - a.enabled) || (order[a.status] - order[b.status]) || a.name.localeCompare(b.name));
-  document.getElementById('hostRows').innerHTML = rows.length ? rows.map(h => `
+function params() {
+  const p = new URLSearchParams({ page, size });
+  if (filter.value.trim()) p.set('q', filter.value.trim());
+  if (statusFilter.value) p.set('status', statusFilter.value);
+  return p;
+}
+
+async function load() {
+  let data;
+  try { data = await api('/api/dashboard?' + params()); } catch (e) { return; }
+  const c = data.counts;
+  kTotal.textContent = c.enabled + (c.total > c.enabled ? ` / ${c.total}` : '');
+  kUp.textContent = c.up; kWarn.textContent = c.warning; kDown.textContent = c.down;
+  kAvail.textContent = fmtPct(data.avail_24h); kPacket.textContent = fmtPct(data.packet_24h);
+
+  hostRows.innerHTML = data.hosts.length ? data.hosts.map(h => `
     <tr>
       <td><b>${esc(h.name)}</b>${h.description ? `<div class="muted">${esc(h.description)}</div>` : ''}</td>
       <td>${esc(h.ip)}</td>
@@ -76,31 +84,20 @@ function renderHosts() {
       <td>${pctCell(h.avail_24h)}</td>
       <td>${pctCell(h.avail_7d)}</td>
       <td title="${fmtTime(h.last_check)}">${fmtAgo(h.last_check)}</td>
-    </tr>`).join('') : '<tr><td colspan="8" class="muted">Chưa có địa chỉ.</td></tr>';
-}
+    </tr>`).join('') : '<tr><td colspan="8" class="muted">Không có địa chỉ.</td></tr>';
+  pager(hostPager, data.total, data.page, data.size, (p, s) => { page = p; size = s; load(); });
 
-async function load() {
-  try { data = await api('/api/dashboard'); } catch (e) { return; }
-  const c = data.counts;
-  kTotal.textContent = c.enabled + (c.total > c.enabled ? ` / ${c.total}` : '');
-  kUp.textContent = c.up; kWarn.textContent = c.warning; kDown.textContent = c.down;
-  kAvail.textContent = fmtPct(data.avail_24h); kPacket.textContent = fmtPct(data.packet_24h);
-  renderHosts();
-
-  const labels = data.trend.map(t => t.label), vals = data.trend.map(t => t.avail), rtt = data.trend.map(t => t.rtt);
+  const labels = data.trend.map(t => t.label), vals = data.trend.map(t => t.avail);
   if (!trendChart) {
     trendChart = new Chart(document.getElementById('trendChart'), {
       type: 'line',
-      data: { labels, datasets: [
-        { label: 'Tỷ lệ kết nối (%)', data: vals, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,.12)', fill: true, tension: .3, yAxisID: 'y' },
-        { label: 'RTT TB (ms)', data: rtt, borderColor: '#d97706', borderDash: [4, 3], tension: .3, yAxisID: 'y1', pointRadius: 0 },
-      ] },
-      options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-        scales: { y: { min: 0, max: 100, title: { display: true, text: '%' } },
-                  y1: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'ms' } } } },
+      data: { labels, datasets: [{ label: 'Tỷ lệ kết nối (%)', data: vals, borderColor: '#2563eb',
+        backgroundColor: 'rgba(37,99,235,.12)', fill: true, tension: .3, pointRadius: 2 }] },
+      options: { maintainAspectRatio: false, plugins: { legend: { display: false } },
+        scales: { y: { min: 0, max: 100 }, x: { ticks: { maxTicksLimit: 8 } } } },
     });
   } else {
-    trendChart.data.labels = labels; trendChart.data.datasets[0].data = vals; trendChart.data.datasets[1].data = rtt; trendChart.update();
+    trendChart.data.labels = labels; trendChart.data.datasets[0].data = vals; trendChart.update();
   }
   const sv = [c.up, c.warning, c.down, c.unknown];
   if (!statusChart) {
@@ -112,13 +109,13 @@ async function load() {
     });
   } else { statusChart.data.datasets[0].data = sv; statusChart.update(); }
 
-  document.getElementById('events').innerHTML = data.events.length ? data.events.map(e =>
+  events.innerHTML = data.events.length ? data.events.map(e =>
     `<li><span class="${e.type === 'down' ? 'ev-down' : 'ev-up'}">${e.type === 'down' ? '⚠ Mất kết nối' : '✅ Phục hồi'}</span>
      <span class="muted">${e.time}</span><br>${esc(e.message)}</li>`).join('') : '<li class="muted">Chưa có cảnh báo.</li>';
 }
 
-document.getElementById('filter').oninput = renderHosts;
-document.getElementById('statusFilter').onchange = renderHosts;
+filter.oninput = debounce(() => { page = 1; load(); });
+statusFilter.onchange = () => { page = 1; load(); };
 load();
 setInterval(load, 30000);
 </script>

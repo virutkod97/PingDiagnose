@@ -58,6 +58,25 @@ function toast(title, msg, type = '', ms = 8000) {
   if (ms) setTimeout(() => el.remove(), ms);
 }
 
+function pager(el, total, page, size, go) {
+  const pages = Math.max(1, Math.ceil(total / size));
+  const from = total ? (page - 1) * size + 1 : 0, to = Math.min(total, page * size);
+  el.innerHTML = `<span class="muted">${from}–${to} / ${total}</span>
+    <button class="btn-sm" data-p="1" ${page <= 1 ? 'disabled' : ''}>«</button>
+    <button class="btn-sm" data-p="${page - 1}" ${page <= 1 ? 'disabled' : ''}>‹</button>
+    <span>Trang ${page} / ${pages}</span>
+    <button class="btn-sm" data-p="${page + 1}" ${page >= pages ? 'disabled' : ''}>›</button>
+    <button class="btn-sm" data-p="${pages}" ${page >= pages ? 'disabled' : ''}>»</button>
+    <select class="btn-sm">${[20, 50, 100].map(n => `<option value="${n}" ${n === size ? 'selected' : ''}>${n}/trang</option>`).join('')}</select>`;
+  el.querySelectorAll('button').forEach(b => b.onclick = () => go(+b.dataset.p, size));
+  el.querySelector('select').onchange = e => go(1, +e.target.value);
+}
+
+function debounce(fn, ms = 300) {
+  let t;
+  return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+}
+
 function openModal(id) { document.getElementById(id).classList.add('show'); }
 function closeModal(id) { document.getElementById(id).classList.remove('show'); }
 

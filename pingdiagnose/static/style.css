@@ -26,8 +26,14 @@ h2 { font-size: 16px; margin: 0 0 12px; }
 .kpi .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
 .kpi .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
 .kpi.ok .value { color: var(--ok); } .kpi.down .value { color: var(--down); } .kpi.warn .value { color: var(--warn); }
-.two { grid-template-columns: 2fr 1fr; }
-@media (max-width: 1000px) { .two { grid-template-columns: 1fr; } .sidebar { width: 170px; } }
+.three { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 18px; }
+.three .card { margin-bottom: 0; display: flex; flex-direction: column; }
+.panel-body { height: 280px; position: relative; }
+.panel-body.scroll { overflow-y: auto; }
+.pager { display: flex; gap: 6px; align-items: center; justify-content: flex-end; flex-wrap: wrap; margin-top: 12px; }
+.pager button:disabled { opacity: .4; cursor: default; }
+.pager select { padding: 3px 6px; }
+@media (max-width: 1100px) { .three { grid-template-columns: 1fr; } .sidebar { width: 170px; } }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; }
 th { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; background: #f8fafc; }

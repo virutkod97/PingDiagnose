@@ -178,42 +178,63 @@ def create_app(monitor=None):
             return jsonify(error="Không tìm thấy"), 404
         return render_template("error.html", code=404, message="Không tìm thấy trang."), 404
 
+    def page_args(default=20):
+        page = max(1, request.args.get("page", 1, type=int))
+        size = min(max(5, request.args.get("size", default, type=int)), 200)
+        return page, size, (page - 1) * size
+
+    def host_filter():
+        where, params = [], []
+        q = (request.args.get("q") or "").strip()
+        if q:
+            where.append("(h.name LIKE ? OR h.ip LIKE ? OR h.description LIKE ?)")
+            params += [f"%{q}%"] * 3
+        st = request.args.get("status")
+        if st in ("up", "down", "warning", "unknown"):
+            where.append("h.enabled = 1 AND h.status = ?")
+            params.append(st)
+        elif st == "off":
+            where.append("h.enabled = 0")
+        return (" WHERE " + " AND ".join(where)) if where else "", params
+
     @app.route("/api/dashboard")
     @login_required
     def api_dashboard():
         now = int(time.time())
-        day = now - 86400
-        week = now - 7 * 86400
-        hosts = db.query("SELECT * FROM hosts ORDER BY name COLLATE NOCASE")
-        stats24 = {r["host_id"]: r for r in db.query(
-            "SELECT host_id, COUNT(*) n, SUM(received > 0) ok, SUM(sent) sent, SUM(received) recv, "
-            "AVG(rtt_avg) rtt FROM checks WHERE ts >= ? GROUP BY host_id", (day,))}
-        stats7 = {r["host_id"]: r for r in db.query(
-            "SELECT host_id, COUNT(*) n, SUM(received > 0) ok FROM checks WHERE ts >= ? GROUP BY host_id",
-            (week,))}
+        day, week = now - 86400, now - 7 * 86400
+        c = db.query_one(
+            "SELECT COUNT(*) total, SUM(enabled) enabled, "
+            "SUM(enabled AND status='up') up, SUM(enabled AND status='warning') warning, "
+            "SUM(enabled AND status='down') down, SUM(enabled AND status='unknown') unknown FROM hosts")
+        counts = {k: c[k] or 0 for k in c}
+        tot = db.query_one(
+            "SELECT COUNT(*) n, SUM(c.received > 0) ok, SUM(c.sent) sent, SUM(c.received) recv "
+            "FROM checks c JOIN hosts h ON h.id = c.host_id AND h.enabled = 1 WHERE c.ts >= ?", (day,))
+        page, size, offset = page_args()
+        where, params = host_filter()
+        total = db.query_one(f"SELECT COUNT(*) n FROM hosts h{where}", params)["n"]
+        hosts = db.query(
+            f"SELECT h.* FROM hosts h{where} ORDER BY h.enabled DESC, "
+            "CASE h.status WHEN 'down' THEN 0 WHEN 'warning' THEN 1 WHEN 'unknown' THEN 2 ELSE 3 END, "
+            "h.name COLLATE NOCASE LIMIT ? OFFSET ?", params + [size, offset])
+        ids = [h["id"] for h in hosts]
+        stats24, stats7 = {}, {}
+        if ids:
+            marks = ",".join("?" * len(ids))
+            stats24 = {r["host_id"]: r for r in db.query(
+                "SELECT host_id, COUNT(*) n, SUM(received > 0) ok FROM checks "
+                f"WHERE ts >= ? AND host_id IN ({marks}) GROUP BY host_id", [day] + ids)}
+            stats7 = {r["host_id"]: r for r in db.query(
+                "SELECT host_id, COUNT(*) n, SUM(received > 0) ok FROM checks "
+                f"WHERE ts >= ? AND host_id IN ({marks}) GROUP BY host_id", [week] + ids)}
         out = []
-        tot_n = tot_ok = tot_sent = tot_recv = 0
         for h in hosts:
-            s = stats24.get(h["id"])
-            s7 = stats7.get(h["id"])
+            s24, s7 = stats24.get(h["id"]), stats7.get(h["id"])
             item = {k: h[k] for k in ("id", "name", "ip", "description", "enabled", "status",
                                       "consecutive_fail", "last_check", "last_rtt", "last_change")}
-            item["avail_24h"] = pct(s["ok"], s["n"]) if s else None
-            item["packet_24h"] = pct(s["recv"], s["sent"]) if s else None
-            item["rtt_24h"] = round(s["rtt"], 1) if s and s["rtt"] is not None else None
+            item["avail_24h"] = pct(s24["ok"], s24["n"]) if s24 else None
             item["avail_7d"] = pct(s7["ok"], s7["n"]) if s7 else None
             out.append(item)
-            if s and h["enabled"]:
-                tot_n += s["n"]; tot_ok += s["ok"]; tot_sent += s["sent"]; tot_recv += s["recv"]
-        enabled = [h for h in hosts if h["enabled"]]
-        counts = {
-            "total": len(hosts),
-            "enabled": len(enabled),
-            "up": sum(1 for h in enabled if h["status"] == "up"),
-            "warning": sum(1 for h in enabled if h["status"] == "warning"),
-            "down": sum(1 for h in enabled if h["status"] == "down"),
-            "unknown": sum(1 for h in enabled if h["status"] == "unknown"),
-        }
         off = tz_offset()
         trend = db.query(
             "SELECT ((ts + ?) / 3600) * 3600 - ? AS b, COUNT(*) n, SUM(received > 0) ok, AVG(rtt_avg) rtt "
@@ -221,13 +242,13 @@ def create_app(monitor=None):
             "WHERE ts >= ? GROUP BY b ORDER BY b", (off, off, day))
         events = db.query(
             "SELECT e.*, h.name, h.ip FROM events e LEFT JOIN hosts h ON h.id = e.host_id "
-            "ORDER BY e.id DESC LIMIT 15")
+            "ORDER BY e.id DESC LIMIT 10")
         return jsonify(
             counts=counts,
-            avail_24h=pct(tot_ok, tot_n),
-            packet_24h=pct(tot_recv, tot_sent),
-            hosts=out,
-            trend=[{"ts": r["b"], "label": time.strftime("%H:%M %d/%m", time.localtime(r["b"])),
+            avail_24h=pct(tot["ok"], tot["n"]),
+            packet_24h=pct(tot["recv"], tot["sent"]),
+            hosts=out, total=total, page=page, size=size,
+            trend=[{"ts": r["b"], "label": time.strftime("%H:%M", time.localtime(r["b"])),
                     "avail": pct(r["ok"], r["n"]),
                     "rtt": round(r["rtt"], 1) if r["rtt"] is not None else None} for r in trend],
             events=[fmt_event(e) for e in events],
@@ -236,7 +257,17 @@ def create_app(monitor=None):
     @app.route("/api/hosts")
     @login_required
     def api_hosts():
-        return jsonify(hosts=db.query("SELECT * FROM hosts ORDER BY name COLLATE NOCASE"))
+        page, size, offset = page_args()
+        where, params = host_filter()
+        total = db.query_one(f"SELECT COUNT(*) n FROM hosts h{where}", params)["n"]
+        rows = db.query(f"SELECT h.* FROM hosts h{where} ORDER BY h.name COLLATE NOCASE LIMIT ? OFFSET ?",
+                        params + [size, offset])
+        return jsonify(hosts=rows, total=total, page=page, size=size)
+
+    @app.route("/api/hosts/options")
+    @login_required
+    def api_host_options():
+        return jsonify(hosts=db.query("SELECT id, name, ip FROM hosts ORDER BY name COLLATE NOCASE"))
 
     def clean_host(data):
         ip = (data.get("ip") or "").strip()
@@ -329,7 +360,7 @@ def create_app(monitor=None):
     @app.route("/api/events")
     @login_required
     def api_events():
-        limit = min(request.args.get("limit", 200, type=int), 1000)
+        page, size, offset = page_args()
         params, where = [], []
         if request.args.get("host_id", type=int):
             where.append("e.host_id = ?")
@@ -337,9 +368,11 @@ def create_app(monitor=None):
         if request.args.get("type") in ("up", "down"):
             where.append("e.type = ?")
             params.append(request.args["type"])
-        sql = ("SELECT e.*, h.name, h.ip FROM events e LEFT JOIN hosts h ON h.id = e.host_id "
-               + (("WHERE " + " AND ".join(where)) if where else "") + " ORDER BY e.id DESC LIMIT ?")
-        return jsonify(events=[fmt_event(e) for e in db.query(sql, params + [limit])])
+        cond = (" WHERE " + " AND ".join(where)) if where else ""
+        total = db.query_one(f"SELECT COUNT(*) n FROM events e{cond}", params)["n"]
+        rows = db.query("SELECT e.*, h.name, h.ip FROM events e LEFT JOIN hosts h ON h.id = e.host_id"
+                        f"{cond} ORDER BY e.id DESC LIMIT ? OFFSET ?", params + [size, offset])
+        return jsonify(events=[fmt_event(e) for e in rows], total=total, page=page, size=size)
 
     def report_params():
         today = datetime.now().date()
@@ -361,7 +394,7 @@ def create_app(monitor=None):
         host_id = request.args.get("host_id", type=int)
         return start, end, bucket, host_id, d_from, d_to
 
-    def build_report():
+    def build_report(paged=False):
         start, end, bucket, host_id, d_from, d_to = report_params()
         size = 3600 if bucket == "hour" else 86400
         off = tz_offset()
@@ -371,8 +404,7 @@ def create_app(monitor=None):
             params = [host_id]
         rows = db.query(
             f"SELECT ((c.ts + ?) / {size}) * {size} - ? AS b, COUNT(*) n, SUM(c.received > 0) ok, "
-            "SUM(c.sent) sent, SUM(c.received) recv, AVG(c.rtt_avg) rtt, "
-            "COUNT(DISTINCT c.host_id) hosts FROM checks c "
+            "SUM(c.sent) sent, SUM(c.received) recv, AVG(c.rtt_avg) rtt FROM checks c "
             f"WHERE c.ts >= ? AND c.ts < ?{hfilter} GROUP BY b ORDER BY b",
             [off, off, start, end] + params)
         by_b = {r["b"]: r for r in rows}
@@ -393,50 +425,64 @@ def create_app(monitor=None):
             })
             nxt = datetime.fromtimestamp(t) + timedelta(seconds=size)
             t = int(time.mktime(nxt.timetuple()))
+        agg = {"checks": sum(x["n"] for x in rows), "ok": sum(x["ok"] or 0 for x in rows),
+               "sent": sum(x["sent"] or 0 for x in rows), "recv": sum(x["recv"] or 0 for x in rows)}
+        ev_where = " WHERE e.ts >= ? AND e.ts < ?" + (" AND e.host_id = ?" if host_id else "")
+        ev_params = [start, end] + params
+        agg["down_events"] = db.query_one(f"SELECT COUNT(*) n FROM events e{ev_where} AND e.type = 'down'",
+                                          ev_params)["n"]
+
         interval = db.get_settings()["interval_seconds"]
+        h_where = " WHERE h.id = ?" if host_id else ""
+        t_total = db.query_one(f"SELECT COUNT(*) n FROM hosts h{h_where}", params)["n"]
+        t_limit = ""
+        t_page = e_page = 1
+        psize = 20
+        if paged:
+            psize = min(max(5, request.args.get("size", 20, type=int)), 200)
+            t_page = max(1, request.args.get("tpage", 1, type=int))
+            e_page = max(1, request.args.get("epage", 1, type=int))
+            t_limit = f" LIMIT {psize} OFFSET {(t_page - 1) * psize}"
         summary = db.query(
             "SELECT h.id, h.name, h.ip, COUNT(c.id) n, SUM(c.received > 0) ok, SUM(c.sent) sent, "
             "SUM(c.received) recv, AVG(c.rtt_avg) rtt, MIN(c.rtt_avg) rtt_min, MAX(c.rtt_avg) rtt_max "
-            "FROM hosts h LEFT JOIN checks c ON c.host_id = h.id AND c.ts >= ? AND c.ts < ? "
-            + ("WHERE h.id = ? " if host_id else "") +
-            "GROUP BY h.id ORDER BY h.name COLLATE NOCASE", [start, end] + params)
-        downs = {r["host_id"]: r["n"] for r in db.query(
-            "SELECT host_id, COUNT(*) n FROM events WHERE type='down' AND ts >= ? AND ts < ? GROUP BY host_id",
-            (start, end))}
+            "FROM hosts h LEFT JOIN checks c ON c.host_id = h.id AND c.ts >= ? AND c.ts < ?"
+            f"{h_where} GROUP BY h.id ORDER BY h.name COLLATE NOCASE{t_limit}", [start, end] + params)
+        ids = [x["id"] for x in summary]
+        downs = {}
+        if ids:
+            downs = {r["host_id"]: r["n"] for r in db.query(
+                "SELECT host_id, COUNT(*) n FROM events WHERE type='down' AND ts >= ? AND ts < ? "
+                f"AND host_id IN ({','.join('?' * len(ids))}) GROUP BY host_id", [start, end] + ids)}
         table = []
-        tot = {"checks": 0, "ok": 0, "sent": 0, "recv": 0, "down_events": sum(downs.values())}
-        for s in summary:
-            tot["checks"] += s["n"] or 0
-            tot["ok"] += s["ok"] or 0
-            tot["sent"] += s["sent"] or 0
-            tot["recv"] += s["recv"] or 0
-            n, ok = s["n"] or 0, s["ok"] or 0
+        for x in summary:
+            n, ok = x["n"] or 0, x["ok"] or 0
             table.append({
-                "id": s["id"], "name": s["name"], "ip": s["ip"],
+                "id": x["id"], "name": x["name"], "ip": x["ip"],
                 "checks": n, "ok": ok, "fail": n - ok,
-                "avail": pct(ok, n), "packet": pct(s["recv"], s["sent"]),
-                "rtt": round(s["rtt"], 1) if s["rtt"] is not None else None,
-                "rtt_min": s["rtt_min"], "rtt_max": s["rtt_max"],
-                "down_events": downs.get(s["id"], 0),
-                "downtime": (n - ok) * interval,
+                "avail": pct(ok, n), "packet": pct(x["recv"], x["sent"]),
+                "rtt": round(x["rtt"], 1) if x["rtt"] is not None else None,
+                "rtt_min": x["rtt_min"], "rtt_max": x["rtt_max"],
+                "down_events": downs.get(x["id"], 0),
                 "downtime_text": fmt_dur((n - ok) * interval),
             })
-        ev_sql = ("SELECT e.*, h.name, h.ip FROM events e LEFT JOIN hosts h ON h.id = e.host_id "
-                  "WHERE e.ts >= ? AND e.ts < ?" + (" AND e.host_id = ?" if host_id else "") +
-                  " ORDER BY e.ts DESC LIMIT 500")
-        events = db.query(ev_sql, [start, end] + params)
+        e_total = db.query_one(f"SELECT COUNT(*) n FROM events e{ev_where}", ev_params)["n"]
+        e_limit = f" LIMIT {psize} OFFSET {(e_page - 1) * psize}" if paged else ""
+        events = db.query("SELECT e.*, h.name, h.ip FROM events e LEFT JOIN hosts h ON h.id = e.host_id"
+                          f"{ev_where} ORDER BY e.ts DESC{e_limit}", ev_params)
         return {
             "from": d_from.strftime("%Y-%m-%d"), "to": d_to.strftime("%Y-%m-%d"),
-            "bucket": bucket, "host_id": host_id,
-            "series": series, "table": table,
-            "totals": dict(tot, avail=pct(tot["ok"], tot["checks"]), packet=pct(tot["recv"], tot["sent"])),
-            "events": [fmt_event(e) for e in events],
+            "bucket": bucket, "host_id": host_id, "size": psize,
+            "series": series,
+            "totals": dict(agg, avail=pct(agg["ok"], agg["checks"]), packet=pct(agg["recv"], agg["sent"])),
+            "table": table, "table_total": t_total, "table_page": t_page,
+            "events": [fmt_event(e) for e in events], "events_total": e_total, "events_page": e_page,
         }
 
     @app.route("/api/report")
     @login_required
     def api_report():
-        return jsonify(build_report())
+        return jsonify(build_report(paged=True))
 
     @app.route("/api/report.csv")
     @login_required

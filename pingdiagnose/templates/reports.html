@@ -42,28 +42,31 @@
     <tbody id="tblRows"></tbody>
   </table>
   </div>
+  <div class="pager" id="tblPager"></div>
 </div>
 
 <div class="card">
   <h2>Chi tiết theo thời gian</h2>
-  <div class="table-wrap" style="max-height:420px;overflow:auto">
+  <div class="table-wrap">
   <table>
     <thead><tr><th>Thời gian</th><th class="num">Kiểm tra</th><th class="num">Thành công</th><th class="num">Thất bại</th>
       <th>Tỷ lệ kết nối</th><th class="num">Gói nhận</th><th class="num">RTT TB (ms)</th></tr></thead>
     <tbody id="seriesRows"></tbody>
   </table>
   </div>
+  <div class="pager" id="seriesPager"></div>
 </div>
 
 <div class="card">
   <h2>Sự kiện mất / phục hồi kết nối</h2>
   <ul class="events" id="repEvents"></ul>
+  <div class="pager" id="evPager"></div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='chart.umd.min.js') }}"></script>
 <script>
-let chart;
+let chart, series = [], tpage = 1, epage = 1, spage = 1, size = 20, lastKey = '';
 const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 function quick(days) {
   const t = new Date(), f = new Date();
@@ -77,28 +80,42 @@ function params() {
   if (rBucket.value) p.set('bucket', rBucket.value);
   return p.toString();
 }
+function renderSeries() {
+  const rows = series.slice().reverse();
+  seriesRows.innerHTML = rows.slice((spage - 1) * size, spage * size).map(s => `
+    <tr><td>${s.label}</td><td class="num">${s.checks}</td><td class="num">${s.ok}</td><td class="num">${s.fail}</td>
+    <td>${pctCell(s.avail)}</td><td class="num">${fmtPct(s.packet)}</td><td class="num">${s.rtt ?? '—'}</td></tr>`).join('');
+  pager(seriesPager, rows.length, spage, size, (p, sz) => { spage = p; size = sz; renderSeries(); });
+}
 async function load() {
+  const key = params();
+  if (key !== lastKey) { tpage = epage = spage = 1; }
   let r;
-  try { r = await api('/api/report?' + params()); } catch (e) { return toast('Lỗi', e.message, 'err'); }
+  try { r = await api(`/api/report?${key}&tpage=${tpage}&epage=${epage}&size=${size}`); }
+  catch (e) { return toast('Lỗi', e.message, 'err'); }
   const t = r.totals;
   sChecks.textContent = t.checks.toLocaleString('vi-VN');
   sAvail.textContent = fmtPct(t.avail);
   sPacket.textContent = fmtPct(t.packet);
   sDowns.textContent = t.down_events;
 
-  const labels = r.series.map(s => s.label);
-  const ds = [
-    { label: 'Tỷ lệ kết nối (%)', data: r.series.map(s => s.avail), borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,.12)', fill: true, tension: .25, yAxisID: 'y', spanGaps: false },
-    { label: 'Tỷ lệ gói nhận (%)', data: r.series.map(s => s.packet), borderColor: '#16a34a', tension: .25, yAxisID: 'y', pointRadius: 0 },
-    { label: 'RTT TB (ms)', data: r.series.map(s => s.rtt), borderColor: '#d97706', borderDash: [4, 3], tension: .25, yAxisID: 'y1', pointRadius: 0 },
-  ];
-  if (chart) chart.destroy();
-  chart = new Chart(repChart, {
-    type: 'line', data: { labels, datasets: ds },
-    options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-      scales: { y: { min: 0, max: 100, title: { display: true, text: '%' } },
-                y1: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'ms' } } } },
-  });
+  if (key !== lastKey) {
+    lastKey = key;
+    series = r.series;
+    const ds = [
+      { label: 'Tỷ lệ kết nối (%)', data: series.map(s => s.avail), borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,.12)', fill: true, tension: .25, yAxisID: 'y' },
+      { label: 'Tỷ lệ gói nhận (%)', data: series.map(s => s.packet), borderColor: '#16a34a', tension: .25, yAxisID: 'y', pointRadius: 0 },
+      { label: 'RTT TB (ms)', data: series.map(s => s.rtt), borderColor: '#d97706', borderDash: [4, 3], tension: .25, yAxisID: 'y1', pointRadius: 0 },
+    ];
+    if (chart) chart.destroy();
+    chart = new Chart(repChart, {
+      type: 'line', data: { labels: series.map(s => s.label), datasets: ds },
+      options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        scales: { y: { min: 0, max: 100, title: { display: true, text: '%' } },
+                  y1: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'ms' } } } },
+    });
+    renderSeries();
+  }
 
   tblRows.innerHTML = r.table.length ? r.table.map(x => `
     <tr><td><b>${esc(x.name)}</b></td><td>${esc(x.ip)}</td><td class="num">${x.checks}</td><td class="num">${x.fail}</td>
@@ -106,17 +123,15 @@ async function load() {
     <td class="num">${x.rtt ?? '—'} / ${x.rtt_min ?? '—'} / ${x.rtt_max ?? '—'}</td>
     <td class="num">${x.down_events}</td><td>${x.downtime_text}</td></tr>`).join('')
     : '<tr><td colspan="9" class="muted">Không có dữ liệu.</td></tr>';
-
-  seriesRows.innerHTML = r.series.slice().reverse().map(s => `
-    <tr><td>${s.label}</td><td class="num">${s.checks}</td><td class="num">${s.ok}</td><td class="num">${s.fail}</td>
-    <td>${pctCell(s.avail)}</td><td class="num">${fmtPct(s.packet)}</td><td class="num">${s.rtt ?? '—'}</td></tr>`).join('');
+  pager(tblPager, r.table_total, r.table_page, r.size, (p, sz) => { tpage = p; size = sz; load(); });
 
   repEvents.innerHTML = r.events.length ? r.events.map(e =>
     `<li><span class="${e.type === 'down' ? 'ev-down' : 'ev-up'}">${e.type === 'down' ? '⚠ Mất kết nối' : '✅ Phục hồi'}</span>
-     <span class="muted">${e.time}</span> – ${esc(e.message)}</li>`).join('') : '<li class="muted">Không có sự kiện trong khoảng thời gian này.</li>';
+     <span class="muted">${e.time}</span> – ${esc(e.message)}</li>`).join('') : '<li class="muted">Không có sự kiện.</li>';
+  pager(evPager, r.events_total, r.events_page, r.size, (p, sz) => { epage = p; size = sz; load(); });
 }
 (async () => {
-  const hs = (await api('/api/hosts')).hosts;
+  const hs = (await api('/api/hosts/options')).hosts;
   rHost.innerHTML += hs.map(h => `<option value="${h.id}">${esc(h.name)} (${esc(h.ip)})</option>`).join('');
   const q = new URLSearchParams(location.search);
   if (q.get('host_id')) rHost.value = q.get('host_id');
@@ -124,7 +139,7 @@ async function load() {
   load();
 })();
 rQuick.onchange = () => { if (rQuick.value !== '') { quick(parseInt(rQuick.value)); load(); } };
-repForm.onsubmit = e => { e.preventDefault(); load(); };
+repForm.onsubmit = e => { e.preventDefault(); lastKey = ''; load(); };
 btnCsv.onclick = () => { location.href = '/api/report.csv?' + params(); };
 </script>
 {% endblock %}

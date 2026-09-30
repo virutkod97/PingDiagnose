@@ -113,3 +113,27 @@ def test_ping_localhost():
     if os.environ.get("REQUIRE_PING"):
         assert r.received == 2, r.to_dict()
 
+
+
+def test_pagination(client):
+    tok = setup_admin(client)
+    text = "\n".join(f"10.1.{i // 250}.{i % 250 + 1}, H{i:03d}" for i in range(45))
+    assert client.post("/api/hosts/import", json={"text": text}, headers={"X-CSRF-Token": tok}).get_json()["added"] == 45
+    d = client.get("/api/hosts?page=3&size=20").get_json()
+    assert d["total"] == 45 and len(d["hosts"]) == 5 and d["hosts"][0]["name"] == "H040"
+    d = client.get("/api/hosts?q=H01").get_json()
+    assert d["total"] == 10
+    d = client.get("/api/dashboard?page=2&size=20").get_json()
+    assert d["total"] == 45 and len(d["hosts"]) == 20 and d["counts"]["total"] == 45
+    assert client.get("/api/dashboard?status=down").get_json()["total"] == 0
+    from pingdiagnose import db
+    with db.tx() as conn:
+        for i in range(30):
+            conn.execute("INSERT INTO events(host_id, ts, type, message) VALUES (1, ?, 'down', 'x')", (int(time.time()) - i,))
+    d = client.get("/api/events?page=2&size=20").get_json()
+    assert d["total"] == 30 and len(d["events"]) == 10
+    r = client.get("/api/report?tpage=3&epage=2&size=20").get_json()
+    assert r["table_total"] == 45 and len(r["table"]) == 5 and r["events_total"] == 30 and len(r["events"]) == 10
+    assert r["totals"]["down_events"] == 30
+    assert len(client.get("/api/hosts/options").get_json()["hosts"]) == 45
+    assert client.get("/api/report.csv").get_data(as_text=True).count("H0") >= 45

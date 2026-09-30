@@ -13,12 +13,14 @@
     <tbody id="rows"></tbody>
   </table>
   </div>
+  <div class="pager" id="evPager"></div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
+let page = 1, size = 20;
 async function load() {
-  const p = new URLSearchParams({ limit: 500 });
+  const p = new URLSearchParams({ page, size });
   if (eHost.value) p.set('host_id', eHost.value);
   if (eType.value) p.set('type', eType.value);
   const d = await api('/api/events?' + p);
@@ -26,12 +28,13 @@ async function load() {
     <td class="${e.type === 'down' ? 'ev-down' : 'ev-up'}">${e.type === 'down' ? '⚠ Mất kết nối' : '✅ Phục hồi'}</td>
     <td>${esc(e.name || '')} (${esc(e.ip || '')})</td><td>${esc(e.message)}</td></tr>`).join('')
     : '<tr><td colspan="4" class="muted">Chưa có cảnh báo.</td></tr>';
+  pager(evPager, d.total, d.page, d.size, (p2, s2) => { page = p2; size = s2; load(); });
 }
 (async () => {
-  const hs = (await api('/api/hosts')).hosts;
+  const hs = (await api('/api/hosts/options')).hosts;
   eHost.innerHTML += hs.map(h => `<option value="${h.id}">${esc(h.name)} (${esc(h.ip)})</option>`).join('');
   load();
 })();
-eHost.onchange = load; eType.onchange = load;
+eHost.onchange = eType.onchange = () => { page = 1; load(); };
 </script>
 {% endblock %}

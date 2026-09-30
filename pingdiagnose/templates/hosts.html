@@ -11,7 +11,7 @@
   {% endif %}
 </div>
 <div class="card">
-  <div class="form-row"><input id="filter" placeholder="Tìm tên / IP..." style="width:240px"><span class="muted" id="countInfo"></span></div>
+  <div class="form-row"><input id="filter" placeholder="Tìm tên / IP..." style="width:240px"></div>
   <div class="table-wrap">
   <table>
     <thead><tr><th>Tên</th><th>Địa chỉ IP</th><th>Mô tả</th><th>Trạng thái</th><th>Kiểm tra lần cuối</th>
@@ -19,6 +19,7 @@
     <tbody id="rows"></tbody>
   </table>
   </div>
+  <div class="pager" id="hostPager"></div>
 </div>
 
 {% if user.role == 'admin' %}
@@ -52,16 +53,13 @@
 {% endblock %}
 {% block scripts %}
 <script>
-let hosts = [];
+let hosts = [], page = 1, size = 20;
 async function load() {
-  hosts = (await api('/api/hosts')).hosts;
-  render();
-}
-function render() {
-  const q = document.getElementById('filter').value.toLowerCase();
-  const rows = hosts.filter(h => !q || (h.name + ' ' + h.ip + ' ' + h.description).toLowerCase().includes(q));
-  document.getElementById('countInfo').textContent = `${rows.length} / ${hosts.length} địa chỉ`;
-  document.getElementById('rows').innerHTML = rows.length ? rows.map(h => `
+  const p = new URLSearchParams({ page, size });
+  if (filter.value.trim()) p.set('q', filter.value.trim());
+  const d = await api('/api/hosts?' + p);
+  hosts = d.hosts;
+  rows.innerHTML = hosts.length ? hosts.map(h => `
     <tr>
       <td><b>${esc(h.name)}</b></td><td>${esc(h.ip)}</td><td class="muted">${esc(h.description)}</td>
       <td>${statusBadge(h.status, h.enabled)}</td><td title="${fmtTime(h.last_check)}">${fmtAgo(h.last_check)}</td>
@@ -70,8 +68,9 @@ function render() {
         <button class="btn-sm" onclick="toggle(${h.id})">${h.enabled ? 'Tạm dừng' : 'Bật lại'}</button>
         <button class="btn-sm btn-danger" onclick="del(${h.id})">Xoá</button></td>` : ''}
     </tr>`).join('') : `<tr><td colspan="6" class="muted">Không có địa chỉ.</td></tr>`;
+  pager(hostPager, d.total, d.page, d.size, (p2, s2) => { page = p2; size = s2; load(); });
 }
-document.getElementById('filter').oninput = render;
+filter.oninput = debounce(() => { page = 1; load(); });
 
 function openEdit(id) {
   const h = hosts.find(x => x.id === id) || { id: '', ip: '', name: '', description: '', enabled: 1 };
