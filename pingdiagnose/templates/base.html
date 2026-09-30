@@ -28,11 +28,11 @@
     <div class="side-foot">
       <div>{{ user.username }}<span class="role">{{ 'Quản trị' if user.role == 'admin' else 'Chỉ xem' }}</span></div>
       <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Đăng xuất</button></form>
+      <div class="side-copy">Copyright AnhND - CNTT&amp;CĐS PCNB<br><a href="mailto:anhnd1097@gmail.com">anhnd1097@gmail.com</a></div>
     </div>
   </aside>
   <main class="main">
     {% block content %}{% endblock %}
-    <footer class="copyright">Copyright AnhND - CNTT&amp;CĐS PCNB - <a href="mailto:anhnd1097@gmail.com">anhnd1097@gmail.com</a></footer>
   </main>
 </div>
 <div id="toasts"></div>

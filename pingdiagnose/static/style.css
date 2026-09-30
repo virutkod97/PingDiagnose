@@ -18,10 +18,11 @@ a { color: var(--primary); text-decoration: none; }
 .side-foot { margin-top: auto; padding: 14px 20px; border-top: 1px solid #1f2937; font-size: 12px; }
 .side-foot .role { display: inline-block; padding: 1px 6px; border-radius: 4px; background: #334155; margin-left: 4px; }
 .side-foot button { margin-top: 8px; width: 100%; }
-.copyright { margin-top: auto; padding-top: 24px; text-align: center; font-size: 12px; color: #9aa3b5; }
-.copyright a { color: inherit; }
+.side-copy { margin-top: 12px; text-align: center; font-size: 10px; line-height: 1.5; color: #64748b; }
+.side-copy a, .copyright a { color: inherit; }
+.copyright { text-align: center; font-size: 12px; }
 .login-copy { position: absolute; bottom: 16px; left: 0; right: 0; color: rgba(255,255,255,.45); }
-.main { flex: 1; padding: 22px 26px 14px; min-width: 0; display: flex; flex-direction: column; }
+.main { flex: 1; padding: 22px 26px; min-width: 0; }
 h1 { font-size: 22px; margin: 0 0 18px; }
 .dash-title { text-align: center; }
 .dash-title.custom { color: #dc2626; }
