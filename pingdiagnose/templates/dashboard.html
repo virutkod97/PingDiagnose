@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}
 {% block content %}
-<h1>Dashboard{% if title %}<span class="sys-title">{{ title }}</span>{% endif %}</h1>
+<h1 class="dash-title{{ ' custom' if title }}">{{ title or 'Dashboard' }}</h1>
 
 <div class="grid kpis">
   <div class="kpi"><div class="label">Tổng địa chỉ</div><div class="value" id="kTotal">–</div></div>

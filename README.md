@@ -16,7 +16,7 @@ Viết bằng Python (Flask + SQLite), đóng gói sẵn thành `PingDiagnose.ex
 | 5 | Báo cáo | Chọn IP, trạng thái (đang hoạt động / mất kết nối / đang lỗi), khoảng ngày, nhóm theo giờ/ngày: biểu đồ, bảng thống kê, danh sách sự kiện, **xuất CSV (Excel)**, in |
 | 6 | Phân quyền | **Quản trị** (full quyền) và **Chỉ xem** |
 
-Tên hệ thống hiển thị trên Dashboard, chu kỳ, số gói, timeout, ngưỡng cảnh báo, số ngày lưu dữ liệu chỉnh trong trang **Cấu hình**.
+Tên Dashboard, chu kỳ, số gói, timeout, ngưỡng cảnh báo, số ngày lưu dữ liệu chỉnh trong trang **Cấu hình**.
 
 ## Cài đặt
 
