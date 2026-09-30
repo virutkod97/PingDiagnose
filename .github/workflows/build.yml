@@ -72,8 +72,22 @@ jobs:
           name: PingDiagnose-win64
           path: dist/PingDiagnose-win64.zip
 
-      - name: Release (khi push tag v*)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Read version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path pingdiagnose/config.py -Pattern 'VERSION = "(.+)"').Matches[0].Groups[1].Value
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Release
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: PingDiagnose v${{ steps.ver.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
           files: dist/PingDiagnose-win64.zip
+          body: |
+            Tải `PingDiagnose-win64.zip`, giải nén, chuột phải `install.bat` → Run as administrator.
+            Truy cập `https://IP-máy-chủ:8443`, đăng nhập admin / admin.
