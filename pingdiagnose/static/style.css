@@ -20,6 +20,7 @@ a { color: var(--primary); text-decoration: none; }
 .side-foot button { margin-top: 8px; width: 100%; }
 .main { flex: 1; padding: 22px 26px; min-width: 0; }
 h1 { font-size: 22px; margin: 0 0 18px; }
+.sys-title { color: #dc2626; font-weight: 700; margin-left: 24px; font-size: 20px; }
 h2 { font-size: 16px; margin: 0 0 12px; }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 18px; }
 .grid { display: grid; gap: 14px; }

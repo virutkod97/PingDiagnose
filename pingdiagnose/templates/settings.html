@@ -4,6 +4,7 @@
 <h1>Cấu hình giám sát</h1>
 <div class="card" style="max-width:620px">
   <form id="setForm">
+    <div class="field" style="margin-bottom:12px"><label>Tên hệ thống trên Dashboard</label><input type="text" id="dashboard_title" maxlength="200"></div>
     <div class="field" style="margin-bottom:12px"><label>Chu kỳ ping (giây)</label><input type="number" id="interval_seconds" min="30" max="86400" required></div>
     <div class="field" style="margin-bottom:12px"><label>Số gói ping mỗi chu kỳ</label><input type="number" id="ping_count" min="1" max="10" required></div>
     <div class="field" style="margin-bottom:12px"><label>Thời gian chờ mỗi gói (ms)</label><input type="number" id="ping_timeout_ms" min="100" max="10000" required></div>
@@ -18,6 +19,7 @@
   <div class="form-row">
     <a class="btn" href="/install-ca.bat">Tải file cài chứng chỉ (.bat)</a>
     <a class="btn" href="/ca.crt">Tải ca.crt</a>
+    {% if user.role == 'admin' %}<button type="button" class="btn-primary" id="btnRenew">Cấp lại chứng chỉ</button>{% endif %}
   </div>
 </div>
 {% endblock %}
@@ -25,21 +27,36 @@
 <script>
 const KEYS = ['interval_seconds', 'ping_count', 'ping_timeout_ms', 'fail_threshold', 'retention_days'];
 (async () => {
-  const s = (await api('/api/settings')).settings;
-  KEYS.forEach(k => { const el = document.getElementById(k); el.value = s[k]; el.disabled = !APP.isAdmin; });
+  const d = await api('/api/settings');
+  KEYS.forEach(k => { const el = document.getElementById(k); el.value = d.settings[k]; el.disabled = !APP.isAdmin; });
+  dashboard_title.value = d.dashboard_title || '';
+  dashboard_title.disabled = !APP.isAdmin;
 })();
-(async () => {
-  try {
-    const c = await api('/api/cert');
-    certInfo.innerHTML = c.https
-      ? `Cấp bởi: ${esc(c.issuer)}<br>Hết hạn: ${esc(c.expires)}<br>Tên hợp lệ: ${esc(c.names.join(', '))}`
-      : 'HTTPS đang tắt';
-  } catch (e) { }
-})();
+function showCert(c) {
+  const warn = c.days_left !== null && c.days_left !== undefined && c.days_left < 30;
+  certInfo.innerHTML = c.https === false ? 'HTTPS đang tắt'
+    : `Cấp bởi: ${esc(c.issuer)}<br>Hết hạn: <span class="${warn ? 'ev-down' : ''}">${esc(c.expires)}` +
+      (c.days_left !== null && c.days_left !== undefined ? ` (còn ${c.days_left} ngày)` : '') +
+      `</span><br>Tên hợp lệ: ${esc(c.names.join(', '))}`;
+  const b = document.getElementById('btnRenew');
+  if (b && (c.custom || c.https === false)) b.remove();
+}
+api('/api/cert').then(showCert).catch(() => undefined);
+if (document.getElementById('btnRenew')) {
+  btnRenew.onclick = async () => {
+    if (!confirm('Cấp lại chứng chỉ HTTPS?')) return;
+    try {
+      const c = await api('/api/cert/renew', { method: 'POST' });
+      showCert(Object.assign({ https: true }, c));
+      toast('Đã cấp lại chứng chỉ', c.ca_new ? 'CA đã được tạo mới, máy trạm cần cài lại chứng chỉ.' : '', c.ca_new ? 'err' : 'up', 15000);
+    } catch (e) { toast('Lỗi', e.message, 'err'); }
+  };
+}
 
 setForm.onsubmit = async e => {
   e.preventDefault();
-  const body = {}; KEYS.forEach(k => body[k] = +document.getElementById(k).value);
+  const body = { dashboard_title: dashboard_title.value.trim() };
+  KEYS.forEach(k => body[k] = +document.getElementById(k).value);
   try { await api('/api/settings', { method: 'PUT', body }); toast('Đã lưu', ''); }
   catch (err) { toast('Lỗi', err.message, 'err'); }
 };

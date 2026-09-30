@@ -66,9 +66,17 @@ def local_names():
     return {n for n in names if n}, ips
 
 
+def _expires_soon(name, days=30):
+    try:
+        cert = x509.load_pem_x509_certificates(_load(name))[0]
+    except (OSError, ValueError, IndexError):
+        return True
+    return cert.not_valid_after_utc - _now() < datetime.timedelta(days=days)
+
+
 def ensure_ca():
-    if os.path.exists(_path(CA_CRT)) and os.path.exists(_path(CA_KEY)):
-        return
+    if os.path.exists(_path(CA_KEY)) and not _expires_soon(CA_CRT):
+        return False
     key = ec.generate_private_key(ec.SECP256R1())
     name = x509.Name([
         x509.NameAttribute(NameOID.COMMON_NAME, f"PingDiagnose CA ({socket.gethostname()})"),
@@ -90,6 +98,7 @@ def ensure_ca():
     _write_key(_path(CA_KEY), key)
     _write_cert(_path(CA_CRT), cert)
     log.info("Đã tạo CA nội bộ %s", _path(CA_CRT))
+    return True
 
 
 def _server_ok(names, ips):
@@ -99,6 +108,10 @@ def _server_ok(names, ips):
     except (OSError, ValueError):
         return False
     if cert.issuer != ca.subject or cert.not_valid_after_utc - _now() < datetime.timedelta(days=30):
+        return False
+    try:
+        ca.public_key().verify(cert.signature, cert.tbs_certificate_bytes, ec.ECDSA(cert.signature_hash_algorithm))
+    except Exception:
         return False
     san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
     have_dns = {n.lower() for n in san.get_values_for_type(x509.DNSName)}
@@ -143,6 +156,14 @@ def ensure_server_cert(extra_names=()):
         f.write(cert.public_bytes(serialization.Encoding.PEM) + ca.public_bytes(serialization.Encoding.PEM))
     log.info("Đã cấp chứng chỉ HTTPS cho: %s", ", ".join(sorted(names) + sorted(ips)))
     return _path(SRV_CRT), _path(SRV_KEY)
+
+
+def renew_server_cert(extra_names=()):
+    ca_new = ensure_ca()
+    if os.path.exists(_path(SRV_CRT)):
+        os.remove(_path(SRV_CRT))
+    ensure_server_cert(extra_names)
+    return ca_new
 
 
 def ca_pem():
@@ -204,4 +225,5 @@ def cert_info(path):
         "issuer": cn[0].value if cn else leaf.issuer.rfc4514_string(),
         "names": names,
         "expires": leaf.not_valid_after_utc.astimezone().strftime("%d/%m/%Y"),
+        "days_left": (leaf.not_valid_after_utc - _now()).days,
     }

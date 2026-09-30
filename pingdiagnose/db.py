@@ -129,8 +129,14 @@ def init_db():
 def get_settings():
     s = dict(DEFAULT_SETTINGS)
     for r in query("SELECT key, value FROM settings"):
-        s[r["key"]] = r["value"]
+        if r["key"] in s:
+            s[r["key"]] = r["value"]
     return {k: int(v) for k, v in s.items()}
+
+
+def get_text(key, default=""):
+    row = query_one("SELECT value FROM settings WHERE key = ?", (key,))
+    return row["value"] if row else default
 
 
 def set_settings(values):

@@ -7,6 +7,9 @@
     <div class="field"><label>Địa chỉ</label><select id="rHost"><option value="">Tất cả địa chỉ</option></select></div>
     <div class="field"><label>Từ ngày</label><input type="date" id="rFrom"></div>
     <div class="field"><label>Đến ngày</label><input type="date" id="rTo"></div>
+    <div class="field"><label>Trạng thái</label>
+      <select id="rStatus"><option value="">Tất cả</option><option value="up">Đang hoạt động</option>
+        <option value="down">Mất kết nối</option><option value="warning">Đang lỗi</option></select></div>
     <div class="field"><label>Nhóm theo</label>
       <select id="rBucket"><option value="">Tự động</option><option value="hour">Giờ</option><option value="day">Ngày</option></select></div>
     <div class="field"><label>Nhanh</label>
@@ -78,6 +81,7 @@ function params() {
   const p = new URLSearchParams({ from: rFrom.value, to: rTo.value });
   if (rHost.value) p.set('host_id', rHost.value);
   if (rBucket.value) p.set('bucket', rBucket.value);
+  if (rStatus.value) p.set('status', rStatus.value);
   return p.toString();
 }
 function renderSeries() {

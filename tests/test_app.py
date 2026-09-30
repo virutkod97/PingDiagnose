@@ -137,3 +137,35 @@ def test_pagination(client):
     assert r["totals"]["down_events"] == 30
     assert len(client.get("/api/hosts/options").get_json()["hosts"]) == 45
     assert client.get("/api/report.csv").get_data(as_text=True).count("H0") >= 45
+
+
+def test_title_status_filter_and_cert_renew(client):
+    tok = setup_admin(client)
+    h = {"X-CSRF-Token": tok}
+    r = client.put("/api/settings", json={"dashboard_title": "Hệ thống giám sát IED", "interval_seconds": 180}, headers=h)
+    assert r.status_code == 200 and r.get_json()["dashboard_title"] == "Hệ thống giám sát IED"
+    assert r.get_json()["settings"]["interval_seconds"] == 180
+    assert "Hệ thống giám sát IED" in client.get("/").get_data(as_text=True)
+    client.post("/api/hosts/import", json={"text": "10.0.0.1, A\n10.0.0.2, B"}, headers=h)
+    from pingdiagnose import db
+    from pingdiagnose.monitor import process_result
+    from pingdiagnose.pinger import PingResult
+    now = int(time.time()) - 600
+    for i in range(3):
+        for ip, ok in (("10.0.0.1", 2), ("10.0.0.2", 0)):
+            process_result(db.query_one("SELECT * FROM hosts WHERE ip = ?", (ip,)), PingResult(sent=2, received=ok), 3, now + i * 180)
+    up = client.get("/api/report?status=up").get_json()
+    down = client.get("/api/report?status=down").get_json()
+    assert [x["ip"] for x in up["table"]] == ["10.0.0.1"] and up["totals"]["avail"] == 100.0
+    assert [x["ip"] for x in down["table"]] == ["10.0.0.2"] and down["totals"]["avail"] == 0.0
+    assert down["events_total"] == 1 and up["events_total"] == 0
+    assert "10.0.0.1" not in client.get("/api/report.csv?status=down").get_data(as_text=True)
+
+    from pingdiagnose import certs
+    from pingdiagnose.config import data_dir
+    certs.ensure_server_cert()
+    old = open(os.path.join(data_dir(), "server.crt")).read()
+    r = client.post("/api/cert/renew", headers=h).get_json()
+    assert r["ca_new"] is False and r["days_left"] > 700
+    assert open(os.path.join(data_dir(), "server.crt")).read() != old
+    assert client.get("/api/cert").get_json()["days_left"] > 700

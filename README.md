@@ -13,10 +13,10 @@ Viết bằng Python (Flask + SQLite), đóng gói sẵn thành `PingDiagnose.ex
 | 2 | Ping định kỳ | Mặc định **3 phút** một lần, **2 gói ping** mỗi địa chỉ (song song, dùng ICMP API của Windows) |
 | 3 | Theo dõi mất kết nối | Không phản hồi **3 chu kỳ liên tiếp (9 phút)** → trạng thái *Mất kết nối*, ghi vào lịch sử; ghi nhận khi phục hồi |
 | 4 | Dashboard | Số địa chỉ hoạt động / lỗi / mất kết nối, tỷ lệ kết nối & gói nhận 24h, biểu đồ theo giờ, tỷ lệ 24h/7 ngày từng IP |
-| 5 | Báo cáo | Chọn IP + khoảng ngày, nhóm theo giờ/ngày: biểu đồ, bảng thống kê, danh sách sự kiện, **xuất CSV (Excel)**, in |
+| 5 | Báo cáo | Chọn IP, trạng thái (đang hoạt động / mất kết nối / đang lỗi), khoảng ngày, nhóm theo giờ/ngày: biểu đồ, bảng thống kê, danh sách sự kiện, **xuất CSV (Excel)**, in |
 | 6 | Phân quyền | **Quản trị** (full quyền) và **Chỉ xem** |
 
-Chu kỳ, số gói, timeout, ngưỡng cảnh báo, số ngày lưu dữ liệu chỉnh trong trang **Cấu hình**.
+Tên hệ thống hiển thị trên Dashboard, chu kỳ, số gói, timeout, ngưỡng cảnh báo, số ngày lưu dữ liệu chỉnh trong trang **Cấu hình**.
 
 ## Cài đặt
 
@@ -40,7 +40,8 @@ Trình duyệt chỉ không cảnh báo khi chứng chỉ do một CA mà máy t
 | **CA của PingDiagnose + Group Policy** | GPO → Computer Configuration → Windows Settings → Security Settings → Public Key Policies → Trusted Root Certification Authorities → Import `C:\ProgramData\PingDiagnose\ca.crt` | Tự nhận qua GPO |
 | **CA của PingDiagnose, từng máy** | — | Ở trang đăng nhập bấm **Cài chứng chỉ cho máy này**, chạy file bat → **Yes**, đóng hết trình duyệt rồi mở lại |
 
-Chứng chỉ tự cấp của PingDiagnose hợp lệ cho tên máy, `localhost` và mọi IP của máy chủ, tự cấp lại khi IP thay đổi.
+Chứng chỉ tự cấp của PingDiagnose hợp lệ cho tên máy, `localhost` và mọi IP của máy chủ, tự cấp lại khi IP thay đổi hoặc còn dưới 30 ngày.
+Quản trị có thể bấm **Cấp lại chứng chỉ** trong trang Cấu hình, chứng chỉ mới có hiệu lực ngay, máy trạm không phải cài lại.
 Truy cập bằng tên miền nội bộ: `PingDiagnose.exe config --name ping.congty.local` rồi khởi động lại service.
 Chứng chỉ riêng dạng PEM: `PingDiagnose.exe cert --import cert.pem --key key.pem`. Quay lại CA nội bộ: `PingDiagnose.exe cert --self`.
 

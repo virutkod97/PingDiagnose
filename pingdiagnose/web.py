@@ -132,7 +132,7 @@ def create_app():
     @app.route("/")
     @login_required
     def dashboard():
-        return render_template("dashboard.html", page="dashboard")
+        return render_template("dashboard.html", page="dashboard", title=db.get_text("dashboard_title"))
 
     @app.route("/hosts")
     @login_required
@@ -396,10 +396,16 @@ def create_app():
         start, end, bucket, host_id, d_from, d_to = report_params()
         size = 3600 if bucket == "hour" else 86400
         off = tz_offset()
-        hfilter, params = "", []
+        scope, params = [], []
         if host_id:
-            hfilter = " AND c.host_id = ?"
-            params = [host_id]
+            scope.append("id = ?")
+            params.append(host_id)
+        status = request.args.get("status")
+        if status in ("up", "down", "warning"):
+            scope.append("enabled = 1 AND status = ?")
+            params.append(status)
+        sub = f"SELECT id FROM hosts WHERE {' AND '.join(scope)}" if scope else ""
+        hfilter = f" AND c.host_id IN ({sub})" if sub else ""
         rows = db.query(
             f"SELECT ((c.ts + ?) / {size}) * {size} - ? AS b, COUNT(*) n, SUM(c.received > 0) ok, "
             "SUM(c.sent) sent, SUM(c.received) recv, AVG(c.rtt_avg) rtt FROM checks c "
@@ -425,13 +431,13 @@ def create_app():
             t = int(time.mktime(nxt.timetuple()))
         agg = {"checks": sum(x["n"] for x in rows), "ok": sum(x["ok"] or 0 for x in rows),
                "sent": sum(x["sent"] or 0 for x in rows), "recv": sum(x["recv"] or 0 for x in rows)}
-        ev_where = " WHERE e.ts >= ? AND e.ts < ?" + (" AND e.host_id = ?" if host_id else "")
+        ev_where = " WHERE e.ts >= ? AND e.ts < ?" + (f" AND e.host_id IN ({sub})" if sub else "")
         ev_params = [start, end] + params
         agg["down_events"] = db.query_one(f"SELECT COUNT(*) n FROM events e{ev_where} AND e.type = 'down'",
                                           ev_params)["n"]
 
         interval = db.get_settings()["interval_seconds"]
-        h_where = " WHERE h.id = ?" if host_id else ""
+        h_where = f" WHERE h.id IN ({sub})" if sub else ""
         t_total = db.query_one(f"SELECT COUNT(*) n FROM hosts h{h_where}", params)["n"]
         t_limit = ""
         t_page = e_page = 1
@@ -470,7 +476,7 @@ def create_app():
                           f"{ev_where} ORDER BY e.ts DESC{e_limit}", ev_params)
         return {
             "from": d_from.strftime("%Y-%m-%d"), "to": d_to.strftime("%Y-%m-%d"),
-            "bucket": bucket, "host_id": host_id, "size": psize,
+            "bucket": bucket, "host_id": host_id, "status": status, "size": psize,
             "series": series,
             "totals": dict(agg, avail=pct(agg["ok"], agg["checks"]), packet=pct(agg["recv"], agg["sent"])),
             "table": table, "table_total": t_total, "table_page": t_page,
@@ -596,7 +602,7 @@ def create_app():
     @app.route("/api/settings")
     @login_required
     def api_settings():
-        return jsonify(settings=db.get_settings())
+        return jsonify(settings=db.get_settings(), dashboard_title=db.get_text("dashboard_title"))
 
     @app.route("/api/settings", methods=["PUT"])
     @admin_required
@@ -612,9 +618,14 @@ def create_app():
                 if not lo <= v <= hi:
                     return jsonify(error=f"{k} phải trong khoảng {lo} - {hi}"), 400
                 values[k] = v
+        if "dashboard_title" in d:
+            title = str(d["dashboard_title"] or "").strip()
+            if len(title) > 200:
+                return jsonify(error="Tên hệ thống tối đa 200 ký tự"), 400
+            values["dashboard_title"] = title
         db.set_settings(values)
         log.info("%s cập nhật cấu hình %s", g.user["username"], values)
-        return jsonify(settings=db.get_settings())
+        return jsonify(settings=db.get_settings(), dashboard_title=db.get_text("dashboard_title"))
 
     @app.route("/favicon.ico")
     def favicon():
@@ -641,8 +652,23 @@ def create_app():
         try:
             info = certs.cert_info(path)
         except (OSError, ValueError):
-            info = {"issuer": "?", "names": [], "expires": "?"}
+            info = {"issuer": "?", "names": [], "expires": "?", "days_left": None}
         return jsonify(https=True, custom=custom, **info)
+
+    @app.route("/api/cert/renew", methods=["POST"])
+    @admin_required
+    def api_cert_renew():
+        cfg = load_config()
+        if not cfg.get("https"):
+            return jsonify(error="HTTPS đang tắt"), 400
+        if cfg.get("cert_file") and cfg.get("key_file"):
+            return jsonify(error="Đang dùng chứng chỉ riêng, hãy nhập chứng chỉ mới bằng lệnh cert --import"), 400
+        ca_new = certs.renew_server_cert(cfg.get("extra_names") or [])
+        reload = app.config.get("CERT_RELOAD")
+        if reload:
+            reload()
+        log.info("%s cấp lại chứng chỉ HTTPS", g.user["username"])
+        return jsonify(ca_new=ca_new, **certs.cert_info(os.path.join(data_dir(), certs.SRV_CRT)))
 
     return app
 

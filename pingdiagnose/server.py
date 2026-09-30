@@ -34,6 +34,8 @@ class AppServer:
     def __init__(self):
         self.monitor = None
         self.httpd = None
+        self._stop = threading.Event()
+        self._cert = None
 
     def start(self):
         cfg = load_config()
@@ -50,6 +52,11 @@ class AppServer:
             else:
                 cert, key = certs.ensure_server_cert(cfg.get("extra_names") or [])
             self.httpd.ssl_adapter = BuiltinSSLAdapter(cert, key)
+            self._cert = (cert, key)
+            app.config["CERT_RELOAD"] = self.reload_cert
+            if not (cfg.get("cert_file") and cfg.get("key_file")):
+                threading.Thread(target=self._auto_renew, args=(cfg.get("extra_names") or [],),
+                                 name="cert", daemon=True).start()
             scheme = "https"
         app.config["SESSION_COOKIE_SECURE"] = scheme == "https"
         self.httpd.prepare()
@@ -59,8 +66,23 @@ class AppServer:
                  cfg["port"], data_dir())
         return f"{scheme}://localhost:{cfg['port']}"
 
+    def reload_cert(self):
+        self.httpd.ssl_adapter.context.load_cert_chain(*self._cert)
+        log.info("Đã nạp lại chứng chỉ HTTPS")
+
+    def _auto_renew(self, extra_names):
+        while not self._stop.wait(12 * 3600):
+            try:
+                before = os.path.getmtime(self._cert[0])
+                certs.ensure_server_cert(extra_names)
+                if os.path.getmtime(self._cert[0]) != before:
+                    self.reload_cert()
+            except Exception:
+                log.exception("Lỗi tự gia hạn chứng chỉ")
+
     def stop(self):
         log.info("Đang dừng...")
+        self._stop.set()
         if self.httpd:
             self.httpd.stop()
         if self.monitor:
