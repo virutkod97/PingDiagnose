@@ -15,6 +15,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="PingDiagnose",
+    icon="assets/pingdiagnose.ico",
     console=True,
     upx=False,
 )

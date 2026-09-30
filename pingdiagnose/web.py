@@ -618,6 +618,10 @@ def create_app(monitor=None):
         log.info("%s cập nhật cấu hình %s", g.user["username"], values)
         return jsonify(settings=db.get_settings())
 
+    @app.route("/favicon.ico")
+    def favicon():
+        return app.send_static_file("favicon.ico")
+
     @app.route("/ca.crt")
     def ca_cert():
         return Response(certs.ca_pem(), mimetype="application/x-x509-ca-cert",

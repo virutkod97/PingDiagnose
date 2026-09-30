@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/icon-512.png" width="128" alt=""></p>
+
 # PingDiagnose – Giám sát kết nối IP (Windows Service)
 
 Phần mềm chạy dạng **Windows Service**, định kỳ ping các địa chỉ IP, có dashboard và báo cáo thống kê qua giao diện web HTTPS.

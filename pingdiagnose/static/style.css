@@ -9,7 +9,9 @@ a { color: var(--primary); text-decoration: none; }
 .layout { display: flex; min-height: 100vh; }
 .sidebar { width: 220px; background: var(--side); color: var(--side-text); flex-shrink: 0; display: flex; flex-direction: column; }
 .brand { padding: 18px 20px; font-size: 18px; font-weight: 700; color: #fff; border-bottom: 1px solid #1f2937; }
-.brand small { display: block; font-size: 11px; font-weight: 400; color: #64748b; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand img { width: 28px; height: 28px; }
+.login-logo { display: block; width: 64px; height: 64px; margin: 0 auto 10px; }
 .nav a { display: block; padding: 11px 20px; color: var(--side-text); border-left: 3px solid transparent; }
 .nav a:hover { background: #1f2937; }
 .nav a.active { background: #1f2937; color: #fff; border-left-color: var(--primary); }
