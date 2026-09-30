@@ -53,18 +53,7 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 CREATE INDEX IF NOT EXISTS idx_events_host ON events(host_id, ts);
 
-CREATE TABLE IF NOT EXISTS push_subs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    endpoint TEXT NOT NULL UNIQUE,
-    p256dh TEXT NOT NULL,
-    auth TEXT NOT NULL,
-    user_agent TEXT NOT NULL DEFAULT '',
-    created_at INTEGER NOT NULL,
-    last_ok INTEGER,
-    last_error TEXT,
-    last_error_at INTEGER
-);
+DROP TABLE IF EXISTS push_subs;
 
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,

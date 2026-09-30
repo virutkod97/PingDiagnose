@@ -162,3 +162,46 @@ def install_ca_bat():
         "del \"%F%\" >nul 2>&1\r\n"
         "pause\r\n"
     )
+
+
+def import_cert(src, key_file=None, password=None):
+    from cryptography.hazmat.primitives.serialization import pkcs12
+
+    with open(src, "rb") as f:
+        raw = f.read()
+    if key_file:
+        with open(key_file, "rb") as f:
+            key = serialization.load_pem_private_key(f.read(), password.encode() if password else None)
+        chain = x509.load_pem_x509_certificates(raw)
+    elif src.lower().endswith((".pfx", ".p12")):
+        key, leaf, extra = pkcs12.load_key_and_certificates(raw, password.encode() if password else None)
+        chain = [leaf] + list(extra or [])
+    else:
+        key = serialization.load_pem_private_key(raw, password.encode() if password else None)
+        chain = x509.load_pem_x509_certificates(raw)
+    pub = serialization.PublicFormat.SubjectPublicKeyInfo
+    leaf = next((c for c in chain if c.public_key().public_bytes(serialization.Encoding.DER, pub)
+                 == key.public_key().public_bytes(serialization.Encoding.DER, pub)), None)
+    if leaf is None:
+        raise ValueError("Khoá bí mật không khớp với chứng chỉ")
+    chain = [leaf] + [c for c in chain if c is not leaf]
+    crt, kf = _path("custom.crt"), _path("custom.key")
+    _write_key(kf, key)
+    with open(crt, "wb") as f:
+        f.write(b"".join(c.public_bytes(serialization.Encoding.PEM) for c in chain))
+    return crt, kf, leaf
+
+
+def cert_info(path):
+    leaf = x509.load_pem_x509_certificates(open(path, "rb").read())[0]
+    try:
+        san = leaf.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+        names = san.get_values_for_type(x509.DNSName) + [str(i) for i in san.get_values_for_type(x509.IPAddress)]
+    except x509.ExtensionNotFound:
+        names = []
+    cn = leaf.issuer.get_attributes_for_oid(NameOID.COMMON_NAME)
+    return {
+        "issuer": cn[0].value if cn else leaf.issuer.rfc4514_string(),
+        "names": names,
+        "expires": leaf.not_valid_after_utc.astimezone().strftime("%d/%m/%Y"),
+    }

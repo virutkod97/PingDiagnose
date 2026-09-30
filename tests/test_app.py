@@ -91,8 +91,8 @@ def test_alert_after_three_cycles(client):
     host = db.query_one("SELECT * FROM hosts WHERE ip='10.9.9.9'")
     st, ev = process_result(host, PingResult(sent=2, received=2, rtts=[1.0, 3.0]), 3, now + 900)
     assert st == "up" and ev[0] == "up"
-    ev = client.get("/api/events?after=0").get_json()
-    assert [e["type"] for e in ev["events"]] == ["down", "up"]
+    ev = client.get("/api/events").get_json()
+    assert [e["type"] for e in ev["events"]] == ["up", "down"]
     d = client.get("/api/dashboard").get_json()
     assert d["hosts"][0]["avail_24h"] == 20.0
     rep = client.get("/api/report").get_json()
@@ -113,30 +113,3 @@ def test_ping_localhost():
     if os.environ.get("REQUIRE_PING"):
         assert r.received == 2, r.to_dict()
 
-
-def test_stream(client):
-    import json
-    import threading
-    tok = setup_admin(client)
-    client.post("/api/hosts", json={"ip": "10.8.8.8", "name": "s"}, headers={"X-CSRF-Token": tok})
-    from pingdiagnose import bus, db
-    from pingdiagnose.monitor import process_result
-    from pingdiagnose.pinger import PingResult
-    r = client.get("/api/stream?after=0", buffered=False)
-    assert r.mimetype == "text/event-stream"
-    it = (c.decode() if isinstance(c, bytes) else c for c in r.response)
-    assert next(it).startswith("retry:")
-    assert "event: state" in next(it)
-
-    def fire():
-        time.sleep(0.3)
-        for _ in range(3):
-            process_result(db.query_one("SELECT * FROM hosts"), PingResult(sent=2, received=0), 3)
-        bus.publish()
-    threading.Thread(target=fire).start()
-    msg = next(it)
-    while "event: alert" not in msg:
-        msg = next(it)
-    data = json.loads(msg.split("data: ", 1)[1])
-    assert data["type"] == "down" and data["ip"] == "10.8.8.8" and msg.startswith(f"id: {data['id']}")
-    r.close()

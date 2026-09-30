@@ -75,5 +75,4 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #bfdbfe; border-c
 .login-box button { width: 100%; padding: 10px; }
 .error { color: var(--down); margin-bottom: 12px; }
 .chart-box { position: relative; height: 280px; }
-.notify-state { font-size: 12px; }
 .hidden { display: none !important; }

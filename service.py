@@ -2,8 +2,10 @@
 
   PingDiagnose.exe                          chạy bởi Windows Service Manager
   PingDiagnose.exe run                      chạy trong cửa sổ console
-  PingDiagnose.exe config --port 8443 [--https on|off] [--name ten.mien] [--proxy http://proxy:port]
+  PingDiagnose.exe config --port 8443 [--https on|off] [--name ten.mien]
   PingDiagnose.exe cert                     tạo/cấp lại chứng chỉ HTTPS, in đường dẫn file CA
+  PingDiagnose.exe cert --import file.pfx --password matkhau    dùng chứng chỉ riêng của công ty
+  PingDiagnose.exe cert --self              quay lại dùng CA nội bộ
   PingDiagnose.exe reset-admin              đặt lại tài khoản admin/admin
 """
 import argparse
@@ -42,7 +44,6 @@ def cmd_config(argv):
     p.add_argument("--host")
     p.add_argument("--https", choices=["on", "off"])
     p.add_argument("--name", action="append", help="tên miền/IP thêm vào chứng chỉ")
-    p.add_argument("--proxy", help="proxy để máy chủ gửi push, '' để bỏ")
     a = p.parse_args(argv)
     cfg = load_config()
     if a.port:
@@ -53,17 +54,33 @@ def cmd_config(argv):
         cfg["https"] = a.https == "on"
     if a.name:
         cfg["extra_names"] = sorted(set(cfg.get("extra_names") or []) | set(a.name))
-    if a.proxy is not None:
-        cfg["push_proxy"] = a.proxy
     save_config(cfg)
     print(cfg)
 
 
-def cmd_cert():
+def cmd_cert(argv):
     from pingdiagnose import certs
     from pingdiagnose.config import data_dir
 
-    certs.ensure_server_cert(load_config().get("extra_names") or [])
+    p = argparse.ArgumentParser(prog="PingDiagnose cert")
+    p.add_argument("--import", dest="src", help="file .pfx/.p12 hoặc .pem của chứng chỉ riêng")
+    p.add_argument("--key", help="file khoá .pem (khi chứng chỉ và khoá tách riêng)")
+    p.add_argument("--password", help="mật khẩu file .pfx hoặc khoá")
+    p.add_argument("--self", action="store_true", help="quay lại dùng CA nội bộ của PingDiagnose")
+    a = p.parse_args(argv)
+    cfg = load_config()
+    if a.src:
+        crt, key, leaf = certs.import_cert(a.src, a.key, a.password)
+        cfg.update(https=True, cert_file=crt, key_file=key)
+        save_config(cfg)
+        info = certs.cert_info(crt)
+        print(f"Đã nhập chứng chỉ, hết hạn {info['expires']}, tên hợp lệ: {', '.join(info['names'])}")
+        print("Khởi động lại service: sc stop PingDiagnose & sc start PingDiagnose")
+        return
+    if a.self:
+        cfg.update(cert_file="", key_file="")
+        save_config(cfg)
+    certs.ensure_server_cert(cfg.get("extra_names") or [])
     print(os.path.join(data_dir(), certs.CA_CRT))
 
 
@@ -127,7 +144,7 @@ def main():
     if cmd == "config":
         return cmd_config(args[1:])
     if cmd == "cert":
-        return cmd_cert()
+        return cmd_cert(args[1:])
     if cmd == "reset-admin":
         return cmd_reset_admin()
     if cmd in ("-h", "--help", "help", "version", "--version"):

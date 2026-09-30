@@ -4,7 +4,7 @@ import secrets
 import sys
 
 APP_NAME = "PingDiagnose"
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 FROZEN = getattr(sys, "frozen", False)
 
 DEFAULT_CONFIG = {
@@ -14,8 +14,6 @@ DEFAULT_CONFIG = {
     "cert_file": "",
     "key_file": "",
     "extra_names": [],
-    "push_proxy": "",
-    "vapid_subject": "",
 }
 
 

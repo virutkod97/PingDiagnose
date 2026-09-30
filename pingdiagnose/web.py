@@ -1,18 +1,18 @@
 import csv
 import io
-import json
+import os
 import logging
 import secrets
 import time
 from datetime import datetime, timedelta
 from functools import wraps
 
-from flask import (Flask, Response, abort, g, jsonify, redirect, render_template, request, send_from_directory,
+from flask import (Flask, Response, abort, g, jsonify, redirect, render_template, request,
                    session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import bus, certs, db, webpush
-from .config import APP_NAME, VERSION, load_config, resource_dir, secret_key
+from . import certs, db
+from .config import APP_NAME, VERSION, data_dir, load_config, resource_dir, secret_key
 from .pinger import ping, valid_target
 
 log = logging.getLogger("pingdiagnose.web")
@@ -56,7 +56,7 @@ def create_app(monitor=None):
         g.user = current_user()
         if g.user is None and session.get("uid"):
             session.clear()
-        if request.method not in ("GET", "HEAD", "OPTIONS") and request.endpoint not in ("login", "api_push_resubscribe"):
+        if request.method not in ("GET", "HEAD", "OPTIONS") and request.endpoint != "login":
             token = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token")
             if not token or token != session.get("csrf"):
                 abort(403)
@@ -334,24 +334,17 @@ def create_app(monitor=None):
     @app.route("/api/events")
     @login_required
     def api_events():
-        after = request.args.get("after", type=int)
         limit = min(request.args.get("limit", 200, type=int), 1000)
-        if after is not None:
-            rows = db.query(
-                "SELECT e.*, h.name, h.ip FROM events e LEFT JOIN hosts h ON h.id = e.host_id "
-                "WHERE e.id > ? ORDER BY e.id LIMIT ?", (after, limit))
-        else:
-            params, where = [], []
-            if request.args.get("host_id", type=int):
-                where.append("e.host_id = ?"); params.append(request.args.get("host_id", type=int))
-            if request.args.get("type") in ("up", "down"):
-                where.append("e.type = ?"); params.append(request.args["type"])
-            sql = ("SELECT e.*, h.name, h.ip FROM events e LEFT JOIN hosts h ON h.id = e.host_id "
-                   + (("WHERE " + " AND ".join(where)) if where else "") + " ORDER BY e.id DESC LIMIT ?")
-            rows = db.query(sql, params + [limit])
-        last = db.query_one("SELECT MAX(id) m FROM events")["m"] or 0
-        down = db.query("SELECT id, name, ip, last_change FROM hosts WHERE enabled = 1 AND status = 'down'")
-        return jsonify(events=[fmt_event(e) for e in rows], last_id=last, down=down)
+        params, where = [], []
+        if request.args.get("host_id", type=int):
+            where.append("e.host_id = ?")
+            params.append(request.args.get("host_id", type=int))
+        if request.args.get("type") in ("up", "down"):
+            where.append("e.type = ?")
+            params.append(request.args["type"])
+        sql = ("SELECT e.*, h.name, h.ip FROM events e LEFT JOIN hosts h ON h.id = e.host_id "
+               + (("WHERE " + " AND ".join(where)) if where else "") + " ORDER BY e.id DESC LIMIT ?")
+        return jsonify(events=[fmt_event(e) for e in db.query(sql, params + [limit])])
 
     def report_params():
         today = datetime.now().date()
@@ -580,12 +573,6 @@ def create_app(monitor=None):
         log.info("%s cập nhật cấu hình %s", g.user["username"], values)
         return jsonify(settings=db.get_settings())
 
-    @app.route("/sw.js")
-    def service_worker():
-        r = send_from_directory(app.static_folder, "sw.js", mimetype="application/javascript", max_age=0)
-        r.headers["Cache-Control"] = "no-cache"
-        return r
-
     @app.route("/ca.crt")
     def ca_cert():
         return Response(certs.ca_pem(), mimetype="application/x-x509-ca-cert",
@@ -596,123 +583,19 @@ def create_app(monitor=None):
         return Response(certs.install_ca_bat(), mimetype="application/octet-stream",
                         headers={"Content-Disposition": "attachment; filename=PingDiagnose-cai-chung-chi.bat"})
 
-    @app.route("/api/stream")
+    @app.route("/api/cert")
     @login_required
-    def api_stream():
-        after = request.headers.get("Last-Event-ID", type=int)
-        if after is None:
-            after = request.args.get("after", type=int)
-        if after is None or after < 0:
-            after = db.query_one("SELECT MAX(id) m FROM events")["m"] or 0
-
-        def state():
-            down = db.query("SELECT id, name, ip, last_change FROM hosts WHERE enabled = 1 AND status = 'down'")
-            return f"event: state\ndata: {json.dumps({'down': down}, ensure_ascii=False)}\n\n"
-
-        def gen():
-            last = after
-            yield "retry: 3000\n\n"
-            yield state()
-            end = time.time() + 300
-            while time.time() < end and not bus.stopping.is_set():
-                seq = bus.current()
-                rows = db.query("SELECT e.*, h.name, h.ip FROM events e LEFT JOIN hosts h ON h.id = e.host_id "
-                                "WHERE e.id > ? ORDER BY e.id LIMIT 100", (last,))
-                for e in rows:
-                    last = e["id"]
-                    yield f"id: {e['id']}\nevent: alert\ndata: {json.dumps(fmt_event(e), ensure_ascii=False)}\n\n"
-                if rows:
-                    yield state()
-                if bus.wait(seq, 15) == seq:
-                    yield ": ping\n\n"
-
-        return Response(gen(), mimetype="text/event-stream",
-                        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
-
-    @app.route("/client-policy.reg")
-    def client_policy():
-        origin = request.host_url.rstrip("/")
-        keys = [r"Microsoft\Edge\SleepingTabsBlockedForUrls", r"Google\Chrome\TabDiscardExceptions"]
-        if origin.startswith("http://"):
-            keys += [r"Microsoft\Edge\OverrideSecurityRestrictionsOnInsecureOrigin",
-                     r"Google\Chrome\OverrideSecurityRestrictionsOnInsecureOrigin"]
-        lines = ["Windows Registry Editor Version 5.00", ""]
-        for key in keys:
-            lines += [f"[HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\{key}]", f'"901"="{origin}"', ""]
-        data = "\ufeff" + "\r\n".join(lines) + "\r\n"
-        return Response(data.encode("utf-16-le"), mimetype="application/octet-stream",
-                        headers={"Content-Disposition": "attachment; filename=PingDiagnose-may-tram.reg"})
-
-    @app.route("/api/push/public-key")
-    @login_required
-    def api_push_key():
-        return jsonify(publicKey=webpush.public_key())
-
-    def save_sub(user_id, sub, ua=""):
-        endpoint = (sub or {}).get("endpoint") or ""
-        keys = (sub or {}).get("keys") or {}
-        if not webpush.allowed_endpoint(endpoint) or not keys.get("p256dh") or not keys.get("auth"):
-            return False
-        with db.tx() as conn:
-            conn.execute(
-                "INSERT INTO push_subs(user_id, endpoint, p256dh, auth, user_agent, created_at) VALUES (?,?,?,?,?,?) "
-                "ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, p256dh=excluded.p256dh, "
-                "auth=excluded.auth, user_agent=excluded.user_agent",
-                (user_id, endpoint, keys["p256dh"], keys["auth"], ua[:300], int(time.time())))
-        return True
-
-    @app.route("/api/push/subscribe", methods=["POST"])
-    @login_required
-    def api_push_subscribe():
-        d = body()
-        if not save_sub(g.user["id"], d.get("subscription"), d.get("userAgent") or request.user_agent.string):
-            return jsonify(error="Đăng ký không hợp lệ hoặc dịch vụ push không được hỗ trợ"), 400
-        return jsonify(ok=True)
-
-    @app.route("/api/push/unsubscribe", methods=["POST"])
-    @login_required
-    def api_push_unsubscribe():
-        db.execute("DELETE FROM push_subs WHERE endpoint = ? AND user_id = ?", (body().get("endpoint"), g.user["id"]))
-        return jsonify(ok=True)
-
-    @app.route("/api/push/resubscribe", methods=["POST"])
-    def api_push_resubscribe():
-        d = body()
-        old = db.query_one("SELECT * FROM push_subs WHERE endpoint = ?", (d.get("oldEndpoint") or "",))
-        if not old:
-            return jsonify(error="Không tìm thấy"), 404
-        if not save_sub(old["user_id"], d.get("subscription"), old["user_agent"]):
-            return jsonify(error="Đăng ký không hợp lệ"), 400
-        if (d.get("subscription") or {}).get("endpoint") != old["endpoint"]:
-            db.execute("DELETE FROM push_subs WHERE id = ?", (old["id"],))
-        return jsonify(ok=True)
-
-    @app.route("/api/push/test", methods=["POST"])
-    @login_required
-    def api_push_test():
-        res = webpush.send({"title": "PingDiagnose", "body": "Thông báo thử: thiết bị này đã nhận được cảnh báo.",
-                            "tag": "pd-test", "url": "/"}, g.user["id"])
-        return jsonify(devices=len(res), sent=sum(1 for r in res if r["ok"]), results=res)
-
-    @app.route("/api/push/devices")
-    @admin_required
-    def api_push_devices():
-        rows = db.query("SELECT p.id, p.user_agent, p.created_at, p.last_ok, p.last_error, p.last_error_at, "
-                        "p.endpoint, u.username FROM push_subs p JOIN users u ON u.id = p.user_id ORDER BY u.username")
-        for r in rows:
-            r["service"] = (r.pop("endpoint").split("/")[2:3] or [""])[0]
-        return jsonify(devices=rows)
-
-    @app.route("/api/push/devices/<int:sid>", methods=["DELETE"])
-    @admin_required
-    def api_push_device_delete(sid):
-        db.execute("DELETE FROM push_subs WHERE id = ?", (sid,))
-        return jsonify(ok=True)
-
-    @app.route("/api/push/connectivity", methods=["POST"])
-    @admin_required
-    def api_push_connectivity():
-        return jsonify(results=webpush.check_connectivity(), proxy=load_config().get("push_proxy") or None)
+    def api_cert():
+        cfg = load_config()
+        if not cfg.get("https"):
+            return jsonify(https=False)
+        custom = bool(cfg.get("cert_file") and cfg.get("key_file"))
+        path = cfg["cert_file"] if custom else os.path.join(data_dir(), certs.SRV_CRT)
+        try:
+            info = certs.cert_info(path)
+        except (OSError, ValueError):
+            info = {"issuer": "?", "names": [], "expires": "?"}
+        return jsonify(https=True, custom=custom, **info)
 
     return app
 

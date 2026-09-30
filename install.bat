@@ -81,7 +81,7 @@ if errorlevel 1 (
 echo.
 echo  Giao dien web : https://%COMPUTERNAME%:%PORT%   hoac   https://IP-may-chu:%PORT%
 echo  Tai khoan     : admin / admin - bat buoc doi mat khau lan dau
-echo  May tram      : vao trang dang nhap, bam "Cai chung chi cho may nay", sau do bat thong bao
+echo  May tram      : vao trang dang nhap, bam "Cai chung chi cho may nay" de het canh bao chung chi
 echo  Du lieu       : %DATA%
 echo.
 start "" "https://localhost:%PORT%"

@@ -126,7 +126,6 @@ async function load() {
 
 document.getElementById('filter').oninput = renderHosts;
 document.getElementById('statusFilter').onchange = renderHosts;
-window.onNewEvents = load;
 load();
 setInterval(load, 30000);
 </script>
