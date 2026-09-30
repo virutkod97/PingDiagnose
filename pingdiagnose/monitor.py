@@ -54,7 +54,6 @@ class Monitor:
     def __init__(self):
         self._stop = threading.Event()
         self._thread = None
-        self.last_cycle = None
         self.next_cycle = None
         self._last_cleanup = 0
 
@@ -97,7 +96,6 @@ class Monitor:
         log.info("Bắt đầu giám sát")
         while not self._stop.is_set():
             start = time.time()
-            self.last_cycle = int(start)
             try:
                 self.run_cycle()
             except Exception:

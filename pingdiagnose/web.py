@@ -28,7 +28,7 @@ SETTING_LIMITS = {
 _login_fail = {}
 
 
-def create_app(monitor=None):
+def create_app():
     app = Flask(
         __name__,
         template_folder=f"{resource_dir()}/templates",
@@ -39,10 +39,8 @@ def create_app(monitor=None):
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
-        JSON_AS_ASCII=False,
     )
     app.json.ensure_ascii = False
-    app.monitor = monitor
     db.init_db()
 
     def current_user():

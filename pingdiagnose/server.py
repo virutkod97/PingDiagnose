@@ -39,7 +39,7 @@ class AppServer:
         cfg = load_config()
         db.init_db()
         self.monitor = Monitor()
-        app = create_app(self.monitor)
+        app = create_app()
         self.httpd = wsgi.Server((cfg["host"], int(cfg["port"])), app, numthreads=32,
                                  server_name=f"{APP_NAME}/{VERSION}")
         scheme = "http"
