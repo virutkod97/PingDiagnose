@@ -1,6 +1,5 @@
 @echo off
 setlocal
-REM Dong goi PingDiagnose thanh exe (chay tren Windows, can Python 3.10+)
 cd /d "%~dp0"
 if not exist .venv (
     python -m venv .venv || goto :err

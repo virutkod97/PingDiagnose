@@ -1,5 +1,3 @@
-# -*- mode: python ; coding: utf-8 -*-
-# Build: pyinstaller --noconfirm PingDiagnose.spec
 a = Analysis(
     ["service.py"],
     pathex=[],

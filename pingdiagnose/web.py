@@ -1,4 +1,3 @@
-"""Giao diện web + REST API."""
 import csv
 import io
 import logging
@@ -7,12 +6,12 @@ import time
 from datetime import datetime, timedelta
 from functools import wraps
 
-from flask import (Flask, Response, abort, g, jsonify, redirect, render_template, request,
+from flask import (Flask, Response, abort, g, jsonify, redirect, render_template, request, send_from_directory,
                    session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import db
-from .config import APP_NAME, VERSION, resource_dir, secret_key
+from . import certs, db, webpush
+from .config import APP_NAME, VERSION, load_config, resource_dir, secret_key
 from .pinger import ping, valid_target
 
 log = logging.getLogger("pingdiagnose.web")
@@ -25,7 +24,6 @@ SETTING_LIMITS = {
     "retention_days": (0, 3650),
 }
 
-# chống dò mật khẩu: ip -> [số lần sai, thời điểm khoá đến]
 _login_fail = {}
 
 
@@ -46,7 +44,6 @@ def create_app(monitor=None):
     app.monitor = monitor
     db.init_db()
 
-    # ------------------------------------------------------------ auth helpers
     def current_user():
         uid = session.get("uid")
         if not uid:
@@ -58,7 +55,7 @@ def create_app(monitor=None):
         g.user = current_user()
         if g.user is None and session.get("uid"):
             session.clear()
-        if request.method not in ("GET", "HEAD", "OPTIONS") and request.endpoint != "login":
+        if request.method not in ("GET", "HEAD", "OPTIONS") and request.endpoint not in ("login", "api_push_resubscribe"):
             token = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token")
             if not token or token != session.get("csrf"):
                 abort(403)
@@ -98,7 +95,6 @@ def create_app(monitor=None):
     def body():
         return request.get_json(silent=True) or {}
 
-    # ------------------------------------------------------------ pages
     @app.route("/login", methods=["GET", "POST"])
     def login():
         error = None
@@ -123,7 +119,6 @@ def create_app(monitor=None):
                         nxt = "/"
                     return redirect(nxt)
                 fails += 1
-                # sai 5 lần liên tiếp -> khoá 5 phút
                 _login_fail[ip] = (0, time.time() + 300) if fails >= 5 else (fails, 0)
                 error = "Sai tên đăng nhập hoặc mật khẩu"
         if g.user:
@@ -182,7 +177,6 @@ def create_app(monitor=None):
             return jsonify(error="Không tìm thấy"), 404
         return render_template("error.html", code=404, message="Không tìm thấy trang."), 404
 
-    # ------------------------------------------------------------ API: dashboard
     @app.route("/api/dashboard")
     @login_required
     def api_dashboard():
@@ -243,7 +237,6 @@ def create_app(monitor=None):
             settings=db.get_settings(),
         )
 
-    # ------------------------------------------------------------ API: hosts
     @app.route("/api/hosts")
     @login_required
     def api_hosts():
@@ -337,7 +330,6 @@ def create_app(monitor=None):
         s = db.get_settings()
         return jsonify(ping(ip, s["ping_count"], s["ping_timeout_ms"]).to_dict())
 
-    # ------------------------------------------------------------ API: events
     @app.route("/api/events")
     @login_required
     def api_events():
@@ -360,7 +352,6 @@ def create_app(monitor=None):
         down = db.query("SELECT id, name, ip, last_change FROM hosts WHERE enabled = 1 AND status = 'down'")
         return jsonify(events=[fmt_event(e) for e in rows], last_id=last, down=down)
 
-    # ------------------------------------------------------------ API: reports
     def report_params():
         today = datetime.now().date()
         try:
@@ -411,7 +402,6 @@ def create_app(monitor=None):
                 "packet": pct(r["recv"], r["sent"]) if r else None,
                 "rtt": round(r["rtt"], 1) if r and r["rtt"] is not None else None,
             })
-            # cộng theo lịch để không lệch khi đổi giờ
             nxt = datetime.fromtimestamp(t) + timedelta(seconds=size)
             t = int(time.mktime(nxt.timetuple()))
         interval = db.get_settings()["interval_seconds"]
@@ -464,7 +454,7 @@ def create_app(monitor=None):
     def api_report_csv():
         rep = build_report()
         buf = io.StringIO()
-        buf.write("﻿")  # BOM để Excel đọc đúng tiếng Việt
+        buf.write("﻿")
         w = csv.writer(buf)
         w.writerow([f"Báo cáo kết nối từ {rep['from']} đến {rep['to']}"])
         w.writerow([])
@@ -487,7 +477,6 @@ def create_app(monitor=None):
         return Response(buf.getvalue(), mimetype="text/csv; charset=utf-8",
                         headers={"Content-Disposition": f"attachment; filename={fname}"})
 
-    # ------------------------------------------------------------ API: users
     @app.route("/api/users")
     @admin_required
     def api_users():
@@ -567,7 +556,6 @@ def create_app(monitor=None):
                    (generate_password_hash(new), u["id"]))
         return jsonify(ok=True)
 
-    # ------------------------------------------------------------ API: settings
     @app.route("/api/settings")
     @login_required
     def api_settings():
@@ -591,10 +579,96 @@ def create_app(monitor=None):
         log.info("%s cập nhật cấu hình %s", g.user["username"], values)
         return jsonify(settings=db.get_settings())
 
+    @app.route("/sw.js")
+    def service_worker():
+        r = send_from_directory(app.static_folder, "sw.js", mimetype="application/javascript", max_age=0)
+        r.headers["Cache-Control"] = "no-cache"
+        return r
+
+    @app.route("/ca.crt")
+    def ca_cert():
+        return Response(certs.ca_pem(), mimetype="application/x-x509-ca-cert",
+                        headers={"Content-Disposition": "attachment; filename=PingDiagnose-CA.crt"})
+
+    @app.route("/install-ca.bat")
+    def install_ca():
+        return Response(certs.install_ca_bat(), mimetype="application/octet-stream",
+                        headers={"Content-Disposition": "attachment; filename=PingDiagnose-cai-chung-chi.bat"})
+
+    @app.route("/api/push/public-key")
+    @login_required
+    def api_push_key():
+        return jsonify(publicKey=webpush.public_key())
+
+    def save_sub(user_id, sub, ua=""):
+        endpoint = (sub or {}).get("endpoint") or ""
+        keys = (sub or {}).get("keys") or {}
+        if not webpush.allowed_endpoint(endpoint) or not keys.get("p256dh") or not keys.get("auth"):
+            return False
+        with db.tx() as conn:
+            conn.execute(
+                "INSERT INTO push_subs(user_id, endpoint, p256dh, auth, user_agent, created_at) VALUES (?,?,?,?,?,?) "
+                "ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, p256dh=excluded.p256dh, "
+                "auth=excluded.auth, user_agent=excluded.user_agent",
+                (user_id, endpoint, keys["p256dh"], keys["auth"], ua[:300], int(time.time())))
+        return True
+
+    @app.route("/api/push/subscribe", methods=["POST"])
+    @login_required
+    def api_push_subscribe():
+        d = body()
+        if not save_sub(g.user["id"], d.get("subscription"), d.get("userAgent") or request.user_agent.string):
+            return jsonify(error="Đăng ký không hợp lệ hoặc dịch vụ push không được hỗ trợ"), 400
+        return jsonify(ok=True)
+
+    @app.route("/api/push/unsubscribe", methods=["POST"])
+    @login_required
+    def api_push_unsubscribe():
+        db.execute("DELETE FROM push_subs WHERE endpoint = ? AND user_id = ?", (body().get("endpoint"), g.user["id"]))
+        return jsonify(ok=True)
+
+    @app.route("/api/push/resubscribe", methods=["POST"])
+    def api_push_resubscribe():
+        d = body()
+        old = db.query_one("SELECT * FROM push_subs WHERE endpoint = ?", (d.get("oldEndpoint") or "",))
+        if not old:
+            return jsonify(error="Không tìm thấy"), 404
+        if not save_sub(old["user_id"], d.get("subscription"), old["user_agent"]):
+            return jsonify(error="Đăng ký không hợp lệ"), 400
+        if (d.get("subscription") or {}).get("endpoint") != old["endpoint"]:
+            db.execute("DELETE FROM push_subs WHERE id = ?", (old["id"],))
+        return jsonify(ok=True)
+
+    @app.route("/api/push/test", methods=["POST"])
+    @login_required
+    def api_push_test():
+        res = webpush.send({"title": "PingDiagnose", "body": "Thông báo thử: thiết bị này đã nhận được cảnh báo.",
+                            "tag": "pd-test", "url": "/"}, g.user["id"])
+        return jsonify(devices=len(res), sent=sum(1 for r in res if r["ok"]), results=res)
+
+    @app.route("/api/push/devices")
+    @admin_required
+    def api_push_devices():
+        rows = db.query("SELECT p.id, p.user_agent, p.created_at, p.last_ok, p.last_error, p.last_error_at, "
+                        "p.endpoint, u.username FROM push_subs p JOIN users u ON u.id = p.user_id ORDER BY u.username")
+        for r in rows:
+            r["service"] = (r.pop("endpoint").split("/")[2:3] or [""])[0]
+        return jsonify(devices=rows)
+
+    @app.route("/api/push/devices/<int:sid>", methods=["DELETE"])
+    @admin_required
+    def api_push_device_delete(sid):
+        db.execute("DELETE FROM push_subs WHERE id = ?", (sid,))
+        return jsonify(ok=True)
+
+    @app.route("/api/push/connectivity", methods=["POST"])
+    @admin_required
+    def api_push_connectivity():
+        return jsonify(results=webpush.check_connectivity(), proxy=load_config().get("push_proxy") or None)
+
     return app
 
 
-# ---------------------------------------------------------------- helpers
 def pct(a, b):
     if not b:
         return None

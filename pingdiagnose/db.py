@@ -1,4 +1,3 @@
-"""Lớp truy cập SQLite."""
 import os
 import sqlite3
 import threading
@@ -54,6 +53,19 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 CREATE INDEX IF NOT EXISTS idx_events_host ON events(host_id, ts);
 
+CREATE TABLE IF NOT EXISTS push_subs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    user_agent TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    last_ok INTEGER,
+    last_error TEXT,
+    last_error_at INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -61,11 +73,11 @@ CREATE TABLE IF NOT EXISTS settings (
 """
 
 DEFAULT_SETTINGS = {
-    "interval_seconds": "180",   # chu kỳ ping: 3 phút
-    "ping_count": "2",           # số gói ping mỗi chu kỳ
-    "ping_timeout_ms": "1000",   # thời gian chờ mỗi gói
-    "fail_threshold": "3",       # số chu kỳ lỗi liên tiếp trước khi cảnh báo
-    "retention_days": "180",     # thời gian lưu dữ liệu
+    "interval_seconds": "180",
+    "ping_count": "2",
+    "ping_timeout_ms": "1000",
+    "fail_threshold": "3",
+    "retention_days": "180",
 }
 
 _local = threading.local()

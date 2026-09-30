@@ -1,15 +1,11 @@
-"""Khởi chạy web server (cheroot) + luồng giám sát."""
-import datetime
-import ipaddress
 import logging
 import os
-import socket
 import threading
 from logging.handlers import RotatingFileHandler
 
 from cheroot import wsgi
 
-from . import db
+from . import certs, db
 from .config import APP_NAME, VERSION, data_dir, load_config
 from .monitor import Monitor
 from .web import create_app
@@ -25,57 +21,19 @@ def setup_logging(console=False):
     for h in list(root.handlers):
         root.removeHandler(h)
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    fh = RotatingFileHandler(os.path.join(logdir, "pingdiagnose.log"), maxBytes=5_000_000,
-                             backupCount=5, encoding="utf-8")
-    fh.setFormatter(fmt)
-    root.addHandler(fh)
+    handlers = [RotatingFileHandler(os.path.join(logdir, "pingdiagnose.log"), maxBytes=5_000_000,
+                                    backupCount=5, encoding="utf-8")]
     if console:
-        sh = logging.StreamHandler()
-        sh.setFormatter(fmt)
-        root.addHandler(sh)
-
-
-def ensure_self_signed(cert, key):
-    """Tạo chứng chỉ tự ký nếu bật HTTPS mà chưa có chứng chỉ."""
-    if os.path.exists(cert) and os.path.exists(key):
-        return
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
-    from cryptography.x509.oid import NameOID
-
-    k = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    hostname = socket.gethostname()
-    alt = [x509.DNSName(hostname), x509.DNSName("localhost"),
-           x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
-    try:
-        for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
-            ip = ipaddress.ip_address(info[4][0])
-            if x509.IPAddress(ip) not in alt:
-                alt.append(x509.IPAddress(ip))
-    except OSError:
-        pass
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, hostname)])
-    now = datetime.datetime.now(datetime.timezone.utc)
-    c = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(k.public_key())
-         .serial_number(x509.random_serial_number())
-         .not_valid_before(now - datetime.timedelta(days=1))
-         .not_valid_after(now + datetime.timedelta(days=3650))
-         .add_extension(x509.SubjectAlternativeName(alt), critical=False)
-         .sign(k, hashes.SHA256()))
-    with open(key, "wb") as f:
-        f.write(k.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL,
-                                serialization.NoEncryption()))
-    with open(cert, "wb") as f:
-        f.write(c.public_bytes(serialization.Encoding.PEM))
-    log.info("Đã tạo chứng chỉ tự ký: %s", cert)
+        handlers.append(logging.StreamHandler())
+    for h in handlers:
+        h.setFormatter(fmt)
+        root.addHandler(h)
 
 
 class AppServer:
     def __init__(self):
         self.monitor = None
         self.httpd = None
-        self._thread = None
 
     def start(self):
         cfg = load_config()
@@ -87,18 +45,18 @@ class AppServer:
         scheme = "http"
         if cfg.get("https"):
             from cheroot.ssl.builtin import BuiltinSSLAdapter
-            cert = cfg.get("cert_file") or os.path.join(data_dir(), "server.crt")
-            key = cfg.get("key_file") or os.path.join(data_dir(), "server.key")
-            ensure_self_signed(cert, key)
+            if cfg.get("cert_file") and cfg.get("key_file"):
+                cert, key = cfg["cert_file"], cfg["key_file"]
+            else:
+                cert, key = certs.ensure_server_cert(cfg.get("extra_names") or [])
             self.httpd.ssl_adapter = BuiltinSSLAdapter(cert, key)
             scheme = "https"
         app.config["SESSION_COOKIE_SECURE"] = scheme == "https"
         self.httpd.prepare()
         self.monitor.start()
-        self._thread = threading.Thread(target=self.httpd.serve, name="http", daemon=True)
-        self._thread.start()
-        log.info("%s %s đang chạy tại %s://%s:%s (dữ liệu: %s)", APP_NAME, VERSION, scheme,
-                 cfg["host"], cfg["port"], data_dir())
+        threading.Thread(target=self.httpd.serve, name="http", daemon=True).start()
+        log.info("%s %s chạy tại %s://%s:%s (dữ liệu: %s)", APP_NAME, VERSION, scheme, cfg["host"],
+                 cfg["port"], data_dir())
         return f"{scheme}://localhost:{cfg['port']}"
 
     def stop(self):
@@ -107,6 +65,3 @@ class AppServer:
             self.httpd.stop()
         if self.monitor:
             self.monitor.stop()
-
-    def wait(self, stop_event):
-        stop_event.wait()

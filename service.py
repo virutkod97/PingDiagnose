@@ -1,11 +1,10 @@
-"""Điểm vào chương trình PingDiagnose.
+"""PingDiagnose
 
-Cách dùng:
-  PingDiagnose.exe                     (được Windows Service Manager gọi)
-  PingDiagnose.exe run                 chạy trực tiếp trong cửa sổ console
-  PingDiagnose.exe config --port 8080 [--https on|off]
-  PingDiagnose.exe reset-admin         đặt lại mật khẩu admin về "admin"
-  PingDiagnose.exe install|remove|start|stop|restart   (quản lý service qua pywin32)
+  PingDiagnose.exe                          chạy bởi Windows Service Manager
+  PingDiagnose.exe run                      chạy trong cửa sổ console
+  PingDiagnose.exe config --port 8443 [--https on|off] [--name ten.mien] [--proxy http://proxy:port]
+  PingDiagnose.exe cert                     tạo/cấp lại chứng chỉ HTTPS, in đường dẫn file CA
+  PingDiagnose.exe reset-admin              đặt lại tài khoản admin/admin
 """
 import argparse
 import os
@@ -42,6 +41,8 @@ def cmd_config(argv):
     p.add_argument("--port", type=int)
     p.add_argument("--host")
     p.add_argument("--https", choices=["on", "off"])
+    p.add_argument("--name", action="append", help="tên miền/IP thêm vào chứng chỉ")
+    p.add_argument("--proxy", help="proxy để máy chủ gửi push, '' để bỏ")
     a = p.parse_args(argv)
     cfg = load_config()
     if a.port:
@@ -50,8 +51,20 @@ def cmd_config(argv):
         cfg["host"] = a.host
     if a.https:
         cfg["https"] = a.https == "on"
+    if a.name:
+        cfg["extra_names"] = sorted(set(cfg.get("extra_names") or []) | set(a.name))
+    if a.proxy is not None:
+        cfg["push_proxy"] = a.proxy
     save_config(cfg)
     print(cfg)
+
+
+def cmd_cert():
+    from pingdiagnose import certs
+    from pingdiagnose.config import data_dir
+
+    certs.ensure_server_cert(load_config().get("extra_names") or [])
+    print(os.path.join(data_dir(), certs.CA_CRT))
 
 
 def cmd_reset_admin():
@@ -113,6 +126,8 @@ def main():
         return run_console()
     if cmd == "config":
         return cmd_config(args[1:])
+    if cmd == "cert":
+        return cmd_cert()
     if cmd == "reset-admin":
         return cmd_reset_admin()
     if cmd in ("-h", "--help", "help", "version", "--version"):
@@ -126,14 +141,12 @@ def main():
         return run_console()
 
     if not args:
-        # được Service Control Manager khởi chạy
         try:
             servicemanager.Initialize()
             servicemanager.PrepareToHostSingle(PingDiagnoseService)
             servicemanager.StartServiceCtrlDispatcher()
         except Exception as e:
             if getattr(e, "winerror", None) == 1063:
-                # người dùng nhấp đúp vào exe -> chạy dạng console
                 print("Không được chạy bởi Service Manager -> chạy ở chế độ console.")
                 return run_console()
             raise

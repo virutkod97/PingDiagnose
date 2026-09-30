@@ -1,17 +1,13 @@
 @echo off
 setlocal EnableExtensions
-REM ================================================================
-REM  PingDiagnose - cai dat Windows Service
-REM  Cach dung:  install.bat [PORT]     (mac dinh PORT = 8080)
-REM ================================================================
 set "SVC=PingDiagnose"
 set "PORT=%~1"
-if "%PORT%"=="" set "PORT=8080"
+if "%PORT%"=="" set "PORT=8443"
 set "SRC=%~dp0"
 if "%SRC:~-1%"=="\" set "SRC=%SRC:~0,-1%"
 set "DEST=%ProgramFiles%\PingDiagnose"
+set "DATA=%ProgramData%\PingDiagnose"
 
-REM --- Yeu cau quyen Administrator -------------------------------
 net session >nul 2>&1
 if errorlevel 1 (
     echo Dang yeu cau quyen Administrator...
@@ -26,10 +22,9 @@ if not exist "%SRC%\PingDiagnose.exe" (
 )
 
 echo.
-echo === Cai dat PingDiagnose vao "%DEST%" (cong %PORT%) ===
+echo === Cai dat PingDiagnose vao "%DEST%" - cong %PORT% ===
 echo.
 
-REM --- Go service cu neu da cai (nang cap) ------------------------
 sc query "%SVC%" >nul 2>&1
 if not errorlevel 1 (
     echo Phat hien ban cai cu - dang dung service...
@@ -39,7 +34,6 @@ if not errorlevel 1 (
     timeout /t 2 /nobreak >nul
 )
 
-REM --- Sao chep file ---------------------------------------------
 if /I not "%SRC%"=="%DEST%" (
     if not exist "%DEST%" mkdir "%DEST%"
     robocopy "%SRC%" "%DEST%" /E /NFL /NDL /NJH /NJS /NP /R:3 /W:2 >nul
@@ -50,45 +44,47 @@ if /I not "%SRC%"=="%DEST%" (
     )
 )
 
-REM --- Cau hinh cong web -----------------------------------------
-"%DEST%\PingDiagnose.exe" config --port %PORT%
+"%DEST%\PingDiagnose.exe" config --port %PORT% --https on >nul
 if errorlevel 1 (
     echo [LOI] Khong ghi duoc cau hinh.
     pause
     exit /b 1
 )
 
-REM --- Tao service -----------------------------------------------
+echo Tao chung chi HTTPS...
+"%DEST%\PingDiagnose.exe" cert >nul
+if exist "%DATA%\ca.crt" (
+    certutil -f -addstore Root "%DATA%\ca.crt" >nul && echo Da cai chung chi CA len may chu.
+)
+
 sc create "%SVC%" binPath= "\"%DEST%\PingDiagnose.exe\"" start= delayed-auto DisplayName= "PingDiagnose - Giam sat ket noi IP" >nul
 if errorlevel 1 (
     echo [LOI] Khong tao duoc service.
     pause
     exit /b 1
 )
-sc description "%SVC%" "Dinh ky ping cac dia chi IP, canh bao mat ket noi va thong ke qua giao dien web (cong %PORT%)." >nul
+sc description "%SVC%" "Dinh ky ping cac dia chi IP, canh bao mat ket noi va thong ke qua giao dien web - cong %PORT%." >nul
 sc failure "%SVC%" reset= 86400 actions= restart/5000/restart/10000/restart/30000 >nul
 
-REM --- Mo firewall -----------------------------------------------
 netsh advfirewall firewall delete rule name="PingDiagnose Web" >nul 2>&1
 netsh advfirewall firewall add rule name="PingDiagnose Web" dir=in action=allow protocol=TCP localport=%PORT% >nul
 
-REM --- Khoi dong -------------------------------------------------
 sc start "%SVC%" >nul
 timeout /t 3 /nobreak >nul
 sc query "%SVC%" | find "RUNNING" >nul
 if errorlevel 1 (
-    echo [CANH BAO] Service chua o trang thai RUNNING. Xem log tai:
-    echo     %ProgramData%\PingDiagnose\logs\pingdiagnose.log
+    echo [CANH BAO] Service chua chay. Xem log: %DATA%\logs\pingdiagnose.log
 ) else (
     echo Service PingDiagnose dang chay.
 )
 
 echo.
-echo  Giao dien web : http://localhost:%PORT%
-echo  Tai khoan     : admin / admin  (bat buoc doi mat khau khi dang nhap lan dau)
-echo  Du lieu       : %ProgramData%\PingDiagnose
+echo  Giao dien web : https://%COMPUTERNAME%:%PORT%   hoac   https://IP-may-chu:%PORT%
+echo  Tai khoan     : admin / admin - bat buoc doi mat khau lan dau
+echo  May tram      : vao trang dang nhap, bam "Cai chung chi cho may nay", sau do bat thong bao
+echo  Du lieu       : %DATA%
 echo.
-start "" "http://localhost:%PORT%"
+start "" "https://localhost:%PORT%"
 pause
 exit /b 0
 

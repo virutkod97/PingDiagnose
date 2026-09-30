@@ -14,12 +14,43 @@
     {% if user.role == 'admin' %}<button class="btn-primary" type="submit">Lưu cấu hình</button>{% endif %}
   </form>
 </div>
-<div class="card" style="max-width:620px">
-  <h2>Thông báo trình duyệt</h2>
-  <p class="muted">Trình duyệt chỉ cho phép thông báo hệ thống (popup góc màn hình) khi truy cập qua <b>HTTPS</b> hoặc <b>localhost</b>.
-  Khi truy cập bằng http://IP-máy-chủ, cảnh báo vẫn hiển thị trong trang kèm âm thanh. Xem README để bật HTTPS
-  (<code>PingDiagnose.exe config --https on</code>).</p>
+<div class="card" id="push" style="max-width:820px">
+  <h2>Thông báo trên thiết bị này</h2>
+  <p id="pushStateText"></p>
+  <div id="pushError" class="alert-banner hidden"></div>
+  <div class="form-row">
+    <button class="btn-primary hidden" id="pOn">🔔 Bật thông báo</button>
+    <button class="hidden" id="pTest">Gửi thông báo thử</button>
+    <button class="hidden" id="pRe">Đăng ký lại</button>
+    <button class="hidden btn-danger" id="pOff">Tắt trên thiết bị này</button>
+  </div>
+  <div class="muted">
+    <p><b>Cách hoạt động:</b> khi có IP mất kết nối, máy chủ gửi thông báo đẩy (Web Push) tới mọi thiết bị đã bật. Thông báo hiện ở góc màn hình kể cả khi đã đóng trang, chỉ cần trình duyệt đang chạy.</p>
+    <p><b>Lần đầu trên mỗi máy tính:</b></p>
+    <ol>
+      <li>Cài chứng chỉ của PingDiagnose để trình duyệt tin cậy HTTPS: tải và chạy <a href="/install-ca.bat">PingDiagnose-cai-chung-chi.bat</a>, bấm <b>Yes</b> khi Windows hỏi.
+        (Cách khác: tải <a href="/ca.crt">ca.crt</a> → mở → <i>Install Certificate</i> → <i>Trusted Root Certification Authorities</i>.)</li>
+      <li>Đóng hết cửa sổ trình duyệt rồi mở lại trang này. Thanh địa chỉ không còn cảnh báo "Không bảo mật".</li>
+      <li>Bấm <b>Bật thông báo</b> → <b>Cho phép</b>, rồi bấm <b>Gửi thông báo thử</b>.</li>
+    </ol>
+    <p>Nên dùng Microsoft Edge hoặc Google Chrome, không dùng chế độ ẩn danh. Trên Windows, bật thông báo cho trình duyệt trong <i>Settings → System → Notifications</i> và tắt <i>Do not disturb</i>.</p>
+  </div>
 </div>
+
+{% if user.role == 'admin' %}
+<div class="card" style="max-width:1000px">
+  <div class="toolbar"><h2 style="margin:0">Thiết bị đã bật thông báo</h2><button id="pConn">Kiểm tra kết nối máy chủ tới dịch vụ push</button></div>
+  <div id="connResult" class="muted"></div>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Tài khoản</th><th>Thiết bị</th><th>Dịch vụ</th><th>Gửi thành công lần cuối</th><th>Lỗi gần nhất</th><th></th></tr></thead>
+    <tbody id="devRows"></tbody>
+  </table>
+  </div>
+  <p class="muted">Máy chủ cần ra Internet (cổng 443) tới fcm.googleapis.com (Chrome), *.notify.windows.com (Edge), push.services.mozilla.com (Firefox).
+  Nếu phải qua proxy, khai báo <code>"push_proxy": "http://proxy:port"</code> trong <code>C:\ProgramData\PingDiagnose\config.json</code> rồi khởi động lại service.</p>
+</div>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 <script>
@@ -34,6 +65,53 @@ function summary() {
   KEYS.forEach(k => { const el = document.getElementById(k); el.value = s[k]; el.disabled = !APP.isAdmin; el.oninput = summary; });
   summary();
 })();
+const PUSH_DESC = {
+  insecure: 'Trang đang mở bằng HTTP. Trình duyệt chỉ cho nhận thông báo khi mở bằng <b>https://</b>. Hãy truy cập ' + esc('https://' + location.hostname + ':' + (location.port || '')) + '.',
+  unsupported: 'Trình duyệt này không hỗ trợ thông báo đẩy. Dùng Microsoft Edge hoặc Google Chrome bản mới.',
+  denied: 'Thông báo đang bị chặn. Bấm biểu tượng ổ khoá cạnh thanh địa chỉ → <b>Thông báo</b> → <b>Cho phép</b>, rồi tải lại trang.',
+  default: 'Chưa bật thông báo trên thiết bị này.',
+  off: 'Đã cho phép nhưng thiết bị chưa đăng ký nhận thông báo. Bấm <b>Bật thông báo</b>.',
+  on: '<span class="ev-up">✅ Thiết bị này đang nhận thông báo.</span>',
+};
+async function renderPush() {
+  const s = await Push.state();
+  pushStateText.innerHTML = PUSH_DESC[s];
+  pOn.classList.toggle('hidden', !['default', 'off'].includes(s));
+  pTest.classList.toggle('hidden', s !== 'on');
+  pRe.classList.toggle('hidden', s !== 'on');
+  pOff.classList.toggle('hidden', s !== 'on');
+}
+pOn.onclick = () => { pushError.classList.add('hidden'); Push.turnOn(renderPush); };
+pRe.onclick = () => { pushError.classList.add('hidden'); Push.turnOn(renderPush); };
+pTest.onclick = () => Push.test().then(loadDevices).catch(e => toast('Lỗi', e.message, 'err'));
+pOff.onclick = async () => { await Push.disable(); renderPush(); renderPushSide(); loadDevices(); };
+renderPush();
+
+async function loadDevices() {
+  if (!APP.isAdmin) return;
+  const d = await api('/api/push/devices');
+  devRows.innerHTML = d.devices.length ? d.devices.map(x => `<tr><td>${esc(x.username)}</td><td>${esc(deviceLabel(x.user_agent))}</td>
+    <td class="muted">${esc(x.service)}</td><td>${fmtTime(x.last_ok)}</td>
+    <td class="${x.last_error ? 'ev-down' : ''}" style="font-weight:400">${x.last_error ? esc(x.last_error) + ' <span class="muted">(' + fmtAgo(x.last_error_at) + ')</span>' : '—'}</td>
+    <td><button class="btn-sm btn-danger" onclick="delDevice(${x.id})">Xoá</button></td></tr>`).join('')
+    : '<tr><td colspan="6" class="muted">Chưa có thiết bị nào bật thông báo.</td></tr>';
+}
+function deviceLabel(u) {
+  const os = /Windows/.test(u) ? 'Windows' : /Android/.test(u) ? 'Android' : /iPhone|iPad/.test(u) ? 'iOS' : /Mac OS X/.test(u) ? 'Mac' : /Linux/.test(u) ? 'Linux' : '';
+  const br = /Edg\//.test(u) ? 'Edge' : /Firefox\//.test(u) ? 'Firefox' : /Chrome\//.test(u) ? 'Chrome' : /Safari\//.test(u) ? 'Safari' : '';
+  return [os, br].filter(Boolean).join(' · ') || 'Trình duyệt';
+}
+async function delDevice(id) { await api('/api/push/devices/' + id, { method: 'DELETE' }); loadDevices(); }
+if (APP.isAdmin) {
+  loadDevices();
+  pConn.onclick = async () => {
+    connResult.textContent = 'Đang kiểm tra...';
+    const r = await api('/api/push/connectivity', { method: 'POST' });
+    connResult.innerHTML = (r.proxy ? `Qua proxy ${esc(r.proxy)}: ` : '') + r.results.map(x =>
+      `<span class="${x.ok ? 'ev-up' : 'ev-down'}">${x.ok ? '✔' : '✘'} ${esc(x.host)}</span>${x.ok ? ` (${x.ms} ms)` : ': ' + esc(x.error)}`).join(' · ');
+  };
+}
+
 setForm.onsubmit = async e => {
   e.preventDefault();
   const body = {}; KEYS.forEach(k => body[k] = +document.getElementById(k).value);

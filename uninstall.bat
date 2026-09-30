@@ -1,8 +1,5 @@
 @echo off
 setlocal EnableExtensions
-REM ================================================================
-REM  PingDiagnose - go cai dat Windows Service
-REM ================================================================
 set "SVC=PingDiagnose"
 set "DEST=%ProgramFiles%\PingDiagnose"
 set "DATA=%ProgramData%\PingDiagnose"
@@ -29,23 +26,22 @@ if not errorlevel 1 (
     echo Service chua duoc cai dat.
 )
 taskkill /F /IM PingDiagnose.exe >nul 2>&1
-
 netsh advfirewall firewall delete rule name="PingDiagnose Web" >nul 2>&1
+certutil -delstore Root "PingDiagnose CA (%COMPUTERNAME%)" >nul 2>&1
 
 echo.
-choice /C YN /N /M "Xoa ca du lieu (danh sach IP, lich su, tai khoan) tai %DATA% ? [Y/N]: "
+choice /C YN /N /M "Xoa ca du lieu - danh sach IP, lich su, tai khoan, chung chi - tai %DATA% ? [Y/N]: "
 if errorlevel 2 goto keepdata
 rmdir /S /Q "%DATA%" 2>nul
 echo Da xoa du lieu.
-goto removefiles
+goto done
 :keepdata
-echo Giu lai du lieu tai %DATA% (dung lai khi cai dat lai).
+echo Giu lai du lieu tai %DATA%.
 
-:removefiles
+:done
 echo.
 echo Go cai dat hoan tat.
 pause
-REM Xoa thu muc chuong trinh sau khi file bat nay ket thuc - ho tro chay tu chinh thu muc cai dat
 if exist "%DEST%" start "" /MIN cmd /c "timeout /t 2 /nobreak >nul & rmdir /S /Q "%DEST%""
 exit /b 0
 

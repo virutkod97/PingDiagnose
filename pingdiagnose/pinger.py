@@ -1,9 +1,3 @@
-"""Gửi gói ICMP echo (ping).
-
-Trên Windows dùng trực tiếp IcmpSendEcho (iphlpapi.dll) nên không phụ thuộc ngôn
-ngữ hệ điều hành và không cần quyền admin. IPv6 hoặc môi trường khác dùng lệnh
-ping của hệ thống.
-"""
 import ipaddress
 import os
 import re
@@ -23,7 +17,6 @@ def valid_target(target):
         return True
     except ValueError:
         pass
-    # hostname
     labels = target.rstrip(".").split(".")
     return all(re.match(r"^[A-Za-z0-9]([A-Za-z0-9\-]{0,61}[A-Za-z0-9])?$", l) for l in labels)
 
@@ -51,7 +44,6 @@ class PingResult:
         }
 
 
-# ---------------------------------------------------------------- Windows ICMP
 _icmp = None
 if os.name == "nt":
     try:
@@ -87,7 +79,7 @@ if os.name == "nt":
         ]
         _iphlp.IcmpSendEcho.restype = wintypes.DWORD
         _icmp = (_iphlp, ICMP_ECHO_REPLY)
-    except Exception:  # pragma: no cover
+    except Exception:
         _icmp = None
 
 
@@ -111,7 +103,7 @@ def _ping_win_icmp(ip, count, timeout_ms):
             n = iphlp.IcmpSendEcho(handle, addr, req, len(payload), None, reply, reply_size, timeout_ms)
             if n:
                 r = reply_cls.from_buffer_copy(reply.raw[: ctypes.sizeof(reply_cls)])
-                if r.Status == 0:  # IP_SUCCESS
+                if r.Status == 0:
                     res.received += 1
                     res.rtts.append(float(r.RoundTripTime))
     finally:
@@ -119,9 +111,7 @@ def _ping_win_icmp(ip, count, timeout_ms):
     return res
 
 
-# ---------------------------------------------------------------- lệnh ping
 _RTT_RE = re.compile(r"[=<]\s*([\d.,]+)\s*ms", re.I)
-# Dòng phản hồi IPv6 ("time<1ms", "time=0.05 ms"); dòng thống kê "Minimum = 0ms" có khoảng trắng sau "=" nên không khớp.
 _V6_OK_RE = re.compile(r"[=<][\d.,]+\s?ms", re.I)
 
 
@@ -130,7 +120,7 @@ def _ping_cmd(target, count, timeout_ms, ipv6=False):
         cmd = ["ping", "-n", "1", "-w", str(timeout_ms)]
         if ipv6:
             cmd.append("-6")
-        flags = 0x08000000  # CREATE_NO_WINDOW
+        flags = 0x08000000
     else:
         cmd = ["ping", "-c", "1", "-W", str(max(1, round(timeout_ms / 1000)))]
         if ipv6:
@@ -150,8 +140,6 @@ def _ping_cmd(target, count, timeout_ms, ipv6=False):
             res.error = str(e)
             continue
         out = p.stdout
-        # Chỉ tính là thành công khi có dòng phản hồi có TTL (IPv4) hoặc "time=..ms" (IPv6).
-        # Windows trả mã 0 cả khi "Destination host unreachable" nên không dựa vào returncode.
         ok_line = None
         for line in out.splitlines():
             low = line.lower()
@@ -170,7 +158,6 @@ def _ping_cmd(target, count, timeout_ms, ipv6=False):
 
 
 def ping(target, count=2, timeout_ms=1000):
-    """Gửi `count` gói ping tới `target`, trả về PingResult."""
     if not valid_target(target):
         return PingResult(sent=count, error="Địa chỉ không hợp lệ")
     ip = target

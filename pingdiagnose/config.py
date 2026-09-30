@@ -1,30 +1,30 @@
-"""Đường dẫn và cấu hình khởi động (config.json)."""
 import json
 import os
 import secrets
 import sys
 
 APP_NAME = "PingDiagnose"
-VERSION = "1.0.0"
-
+VERSION = "1.1.0"
 FROZEN = getattr(sys, "frozen", False)
+
+DEFAULT_CONFIG = {
+    "host": "0.0.0.0",
+    "port": 8443,
+    "https": True,
+    "cert_file": "",
+    "key_file": "",
+    "extra_names": [],
+    "push_proxy": "",
+    "vapid_subject": "",
+}
 
 
 def resource_dir():
-    """Thư mục chứa templates/static (hỗ trợ khi đóng gói bằng PyInstaller)."""
     base = getattr(sys, "_MEIPASS", None)
-    if base:
-        return os.path.join(base, "pingdiagnose")
-    return os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, "pingdiagnose") if base else os.path.dirname(os.path.abspath(__file__))
 
 
 def data_dir():
-    """Thư mục dữ liệu: DB, log, config.
-
-    - Biến môi trường PINGDIAGNOSE_DATA nếu có
-    - Bản exe trên Windows: %ProgramData%\\PingDiagnose
-    - Chạy từ mã nguồn: ./data
-    """
     path = os.environ.get("PINGDIAGNOSE_DATA")
     if not path:
         if FROZEN and os.name == "nt":
@@ -33,15 +33,6 @@ def data_dir():
             path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
     os.makedirs(path, exist_ok=True)
     return path
-
-
-DEFAULT_CONFIG = {
-    "host": "0.0.0.0",
-    "port": 8080,
-    "https": False,
-    "cert_file": "",
-    "key_file": "",
-}
 
 
 def config_path():
@@ -64,7 +55,7 @@ def load_config():
 
 def save_config(cfg):
     with open(config_path(), "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2)
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
 
 
 def secret_key():
@@ -72,8 +63,8 @@ def secret_key():
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             key = f.read().strip()
-            if key:
-                return key
+        if key:
+            return key
     key = secrets.token_hex(32)
     with open(path, "w", encoding="utf-8") as f:
         f.write(key)
