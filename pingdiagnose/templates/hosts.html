@@ -6,6 +6,7 @@
   {% if user.role == 'admin' %}
   <div>
     <button onclick="openImport()">📥 Nhập danh sách</button>
+    <button onclick="openGroups()">🗂 Quản lý nhóm</button>
     <button class="btn-primary" onclick="openEdit()">+ Thêm địa chỉ</button>
   </div>
   {% endif %}
@@ -29,7 +30,7 @@
     <input type="hidden" id="hId">
     <div class="field"><label>Địa chỉ IP</label><input id="hIp" required></div>
     <div class="field"><label>Tên hiển thị</label><input id="hName"></div>
-    <div class="field"><label>Nhóm</label><input id="hGrp" list="groupList" maxlength="100"><datalist id="groupList"></datalist></div>
+    <div class="field"><label>Nhóm</label><select id="hGrp"></select></div>
     <div class="field"><label>Mô tả</label><textarea id="hDesc" rows="2"></textarea></div>
     <div class="field"><label><input type="checkbox" id="hEnabled" checked style="width:auto"> Đang giám sát</label></div>
     <div class="muted" id="testResult"></div>
@@ -39,6 +40,22 @@
       <button type="submit" class="btn-primary">Lưu</button>
     </div>
   </form>
+</div>
+<div class="modal-bg" id="groupModal">
+  <div class="modal" style="width:560px">
+    <h2>Quản lý nhóm</h2>
+    <div class="table-wrap" style="max-height:50vh;overflow:auto">
+    <table>
+      <thead><tr><th>Tên nhóm</th><th class="num">Số IP</th><th style="width:130px"></th></tr></thead>
+      <tbody id="groupRows"></tbody>
+    </table>
+    </div>
+    <form class="form-row" id="groupAddForm" style="margin:14px 0 0">
+      <input id="newGroup" placeholder="Tên nhóm mới" maxlength="100" style="flex:1" required>
+      <button type="submit" class="btn-primary">+ Thêm nhóm</button>
+    </form>
+    <div class="modal-actions"><button type="button" onclick="closeModal('groupModal')">Đóng</button></div>
+  </div>
 </div>
 <div class="modal-bg" id="importModal">
   <form class="modal" id="importForm">
@@ -74,18 +91,51 @@ async function load() {
 }
 filter.oninput = debounce(() => { page = 1; load(); });
 groupFilter.onchange = () => { page = 1; load(); };
+let groups = [];
 async function refreshGroups() {
   const cur = groupFilter.value;
-  const gs = await loadGroups(groupFilter);
+  groups = await loadGroups(groupFilter);
   if ([...groupFilter.options].some(o => o.value === cur)) groupFilter.value = cur;
-  const dl = document.getElementById('groupList');
-  if (dl) dl.innerHTML = gs.filter(g => g.grp).map(g => `<option value="${esc(g.grp)}">`).join('');
+  const sel = document.getElementById('hGrp');
+  if (sel) sel.innerHTML = '<option value="">(Không có nhóm)</option>' +
+    groups.filter(g => g.id).map(g => `<option value="${esc(g.grp)}">${esc(g.grp)}</option>`).join('');
+  renderGroups();
+}
+function renderGroups() {
+  const tb = document.getElementById('groupRows');
+  if (!tb) return;
+  const list = groups.filter(g => g.id);
+  tb.innerHTML = list.length ? list.map(g => `<tr>
+    <td><input value="${esc(g.grp)}" data-id="${g.id}" maxlength="100" style="width:100%"></td>
+    <td class="num">${g.n}</td>
+    <td><button class="btn-sm" onclick="saveGroup(${g.id})">Lưu</button>
+        <button class="btn-sm btn-danger" onclick="delGroup(${g.id})">Xoá</button></td></tr>`).join('')
+    : '<tr><td colspan="3" class="muted">Chưa có nhóm nào.</td></tr>';
+}
+async function openGroups() { await refreshGroups(); openModal('groupModal'); newGroup.value = ''; newGroup.focus(); }
+async function saveGroup(id) {
+  const name = document.querySelector(`#groupRows input[data-id="${id}"]`).value.trim();
+  try { await api('/api/groups/' + id, { method: 'PUT', body: { name } }); toast('Đã lưu', name); refreshGroups().finally(load); }
+  catch (err) { toast('Lỗi', err.message, 'err'); }
+}
+async function delGroup(id) {
+  const g = groups.find(x => x.id === id);
+  if (!confirm(`Xoá nhóm ${g.grp}?` + (g.n ? ` ${g.n} địa chỉ trong nhóm sẽ chuyển về không có nhóm.` : ''))) return;
+  try { await api('/api/groups/' + id, { method: 'DELETE' }); refreshGroups().finally(load); }
+  catch (err) { toast('Lỗi', err.message, 'err'); }
+}
+if (APP.isAdmin) {
+  groupAddForm.onsubmit = async e => {
+    e.preventDefault();
+    try { await api('/api/groups', { method: 'POST', body: { name: newGroup.value } }); newGroup.value = ''; refreshGroups(); }
+    catch (err) { toast('Lỗi', err.message, 'err'); }
+  };
 }
 
 function openEdit(id) {
   const h = hosts.find(x => x.id === id) || { id: '', ip: '', name: '', grp: '', description: '', enabled: 1 };
   editTitle.textContent = id ? 'Sửa địa chỉ' : 'Thêm địa chỉ';
-  hId.value = h.id; hIp.value = h.ip; hName.value = h.name; hGrp.value = h.grp || ''; hDesc.value = h.description; hEnabled.checked = !!h.enabled;
+  hId.value = h.id; hIp.value = h.ip; hName.value = h.name; hGrp.value = id ? (h.grp || '') : (groupFilter.value !== '*' ? groupFilter.value : ''); hDesc.value = h.description; hEnabled.checked = !!h.enabled;
   testResult.textContent = '';
   openModal('editModal'); hIp.focus();
 }

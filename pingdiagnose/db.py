@@ -33,6 +33,11 @@ CREATE TABLE IF NOT EXISTS hosts (
     created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE
+);
+
 CREATE TABLE IF NOT EXISTS checks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     host_id INTEGER NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,
@@ -122,6 +127,7 @@ def init_db():
         if "grp" not in cols:
             conn.execute("ALTER TABLE hosts ADD COLUMN grp TEXT NOT NULL DEFAULT ''")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_hosts_grp ON hosts(grp)")
+        conn.execute("INSERT OR IGNORE INTO groups(name) SELECT DISTINCT grp FROM hosts WHERE grp != ''")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_events_type_ts ON events(type, ts)")
         for k, v in DEFAULT_SETTINGS.items():
             conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))

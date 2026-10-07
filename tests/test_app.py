@@ -176,6 +176,8 @@ def test_groups_and_outages(client):
     h = {"X-CSRF-Token": tok}
     r = client.post("/api/hosts/import", json={"text": "10.1.0.1, IED A, TBA Hà Nam, rơ le\n10.1.0.2, IED B, TBA Hà Nam\n10.2.0.1, IED C, TBA Nam Định\n10.3.0.1, IED D"}, headers=h).get_json()
     assert r["added"] == 4
+    assert client.post("/api/hosts", json={"ip": "10.4.0.1", "name": "E", "grp": "TBA Ninh Bình"}, headers=h).status_code == 400
+    assert client.post("/api/groups", json={"name": "TBA Ninh Bình"}, headers=h).status_code == 200
     assert client.post("/api/hosts", json={"ip": "10.4.0.1", "name": "E", "grp": "TBA Ninh Bình"}, headers=h).status_code == 200
     groups = {g["grp"]: g["n"] for g in client.get("/api/groups").get_json()["groups"]}
     assert groups == {"TBA Hà Nam": 2, "TBA Nam Định": 1, "TBA Ninh Bình": 1, "": 1}
@@ -231,3 +233,23 @@ def test_migrate_old_db(monkeypatch):
     db.init_db()
     assert db.query_one("SELECT grp FROM hosts WHERE ip = '10.9.9.9'")["grp"] == ""
     db._local.__dict__.clear()
+
+
+def test_group_crud(client):
+    tok = setup_admin(client)
+    h = {"X-CSRF-Token": tok}
+    assert client.post("/api/groups", json={"name": "  TBA   Phủ Lý "}, headers=h).get_json()["name"] == "TBA Phủ Lý"
+    assert client.post("/api/groups", json={"name": "tba phủ lý"}, headers=h).status_code == 400
+    assert client.post("/api/groups", json={"name": ""}, headers=h).status_code == 400
+    client.post("/api/groups", json={"name": "Trống"}, headers=h)
+    client.post("/api/hosts", json={"ip": "10.5.0.1", "grp": "TBA Phủ Lý"}, headers=h)
+    client.post("/api/hosts", json={"ip": "10.5.0.2", "grp": "TBA Phủ Lý"}, headers=h)
+    gs = {g["grp"]: g for g in client.get("/api/groups").get_json()["groups"]}
+    assert gs["TBA Phủ Lý"]["n"] == 2 and gs["Trống"]["n"] == 0
+    gid = gs["TBA Phủ Lý"]["id"]
+    assert client.put(f"/api/groups/{gid}", json={"name": "Trống"}, headers=h).status_code == 400
+    assert client.put(f"/api/groups/{gid}", json={"name": "TBA 110kV Phủ Lý"}, headers=h).status_code == 200
+    assert client.get("/api/hosts?group=TBA 110kV Phủ Lý").get_json()["total"] == 2
+    assert client.delete(f"/api/groups/{gid}", headers=h).status_code == 200
+    assert client.get("/api/hosts?group=").get_json()["total"] == 2
+    assert "TBA 110kV Phủ Lý" not in [g["grp"] for g in client.get("/api/groups").get_json()["groups"]]

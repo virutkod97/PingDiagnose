@@ -267,8 +267,73 @@ def create_app():
     @app.route("/api/groups")
     @login_required
     def api_groups():
-        rows = db.query("SELECT grp, COUNT(*) n FROM hosts GROUP BY grp ORDER BY grp = '', grp COLLATE NOCASE")
+        rows = db.query("SELECT g.id, g.name grp, COUNT(h.id) n FROM groups g LEFT JOIN hosts h ON h.grp = g.name "
+                        "GROUP BY g.id ORDER BY g.name COLLATE NOCASE")
+        none = db.query_one("SELECT COUNT(*) n FROM hosts WHERE grp = ''")["n"]
+        if none:
+            rows.append({"id": None, "grp": "", "n": none})
         return jsonify(groups=rows)
+
+    def clean_group(d):
+        name = " ".join((d.get("name") or "").split())
+        if not name:
+            return None, "Tên nhóm không được để trống"
+        if len(name) > 100:
+            return None, "Tên nhóm tối đa 100 ký tự"
+        return name, None
+
+    @app.route("/api/groups", methods=["POST"])
+    @admin_required
+    def api_group_create():
+        name, err = clean_group(body())
+        if err:
+            return jsonify(error=err), 400
+        if db.query_one("SELECT id FROM groups WHERE name = ?", (name,)):
+            return jsonify(error=f"Nhóm {name} đã tồn tại"), 400
+        return jsonify(id=db.execute("INSERT INTO groups(name) VALUES (?)", (name,)), name=name)
+
+    @app.route("/api/groups/<int:gid>", methods=["PUT"])
+    @admin_required
+    def api_group_update(gid):
+        g = db.query_one("SELECT * FROM groups WHERE id = ?", (gid,))
+        if not g:
+            return jsonify(error="Không tìm thấy"), 404
+        name, err = clean_group(body())
+        if err:
+            return jsonify(error=err), 400
+        if db.query_one("SELECT id FROM groups WHERE name = ? AND id != ?", (name, gid)):
+            return jsonify(error=f"Nhóm {name} đã tồn tại"), 400
+        with db.tx() as conn:
+            conn.execute("UPDATE groups SET name = ? WHERE id = ?", (name, gid))
+            conn.execute("UPDATE hosts SET grp = ? WHERE grp = ?", (name, g["name"]))
+        log.info("%s đổi tên nhóm %s -> %s", g_user(), g["name"], name)
+        return jsonify(ok=True)
+
+    @app.route("/api/groups/<int:gid>", methods=["DELETE"])
+    @admin_required
+    def api_group_delete(gid):
+        g = db.query_one("SELECT * FROM groups WHERE id = ?", (gid,))
+        if not g:
+            return jsonify(error="Không tìm thấy"), 404
+        with db.tx() as conn:
+            conn.execute("UPDATE hosts SET grp = '' WHERE grp = ?", (g["name"],))
+            conn.execute("DELETE FROM groups WHERE id = ?", (gid,))
+        log.info("%s xoá nhóm %s", g_user(), g["name"])
+        return jsonify(ok=True)
+
+    def g_user():
+        return g.user["username"] if g.get("user") else "?"
+
+    def group_name(grp, create=False):
+        if not grp:
+            return ""
+        row = db.query_one("SELECT name FROM groups WHERE name = ?", (grp,))
+        if row:
+            return row["name"]
+        if create:
+            db.execute("INSERT OR IGNORE INTO groups(name) VALUES (?)", (grp,))
+            return grp
+        return None
 
     def clean_host(data):
         ip = (data.get("ip") or "").strip()
@@ -279,6 +344,10 @@ def create_app():
             return None, f"Địa chỉ không hợp lệ: {ip or '(trống)'}"
         if len(name) > 100 or len(desc) > 500 or len(grp) > 100:
             return None, "Tên, nhóm hoặc mô tả quá dài"
+        resolved = group_name(grp, create=bool(data.get("create_group")))
+        if resolved is None:
+            return None, f"Nhóm {grp} chưa được tạo"
+        grp = resolved
         return {"ip": ip, "name": name, "description": desc, "grp": grp,
                 "enabled": 1 if data.get("enabled", True) else 0}, None
 
@@ -307,7 +376,7 @@ def create_app():
                 continue
             parts = [p.strip() for p in line.replace(";", ",").replace("\t", ",").split(",")]
             h, err = clean_host({"ip": parts[0], "name": parts[1] if len(parts) > 1 else "",
-                                 "grp": parts[2] if len(parts) > 2 else "",
+                                 "grp": " ".join(parts[2].split()) if len(parts) > 2 else "", "create_group": True,
                                  "description": ", ".join(parts[3:]) if len(parts) > 3 else ""})
             if err:
                 errors.append(f"Dòng {ln}: {err}")
