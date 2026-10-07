@@ -14,8 +14,8 @@
 
 <div class="grid three">
   <div class="card">
-    <h2>Tỷ lệ kết nối theo giờ</h2>
-    <div class="panel-body"><canvas id="trendChart"></canvas></div>
+    <div class="toolbar" style="margin-bottom:12px"><h2 style="margin:0">Mất kết nối 24 giờ qua</h2><a href="/outages">Xem thống kê →</a></div>
+    <div class="panel-body scroll"><table class="compact"><tbody id="outRows"></tbody></table></div>
   </div>
   <div class="card">
     <h2>Trạng thái hiện tại</h2>
@@ -32,6 +32,7 @@
     <h2 style="margin:0">Chi tiết từng địa chỉ</h2>
     <div class="form-row" style="margin:0">
       <input id="filter" placeholder="Tìm tên / IP..." style="width:200px">
+      <select id="groupFilter"></select>
       <select id="statusFilter">
         <option value="">Tất cả trạng thái</option>
         <option value="down">Mất kết nối</option>
@@ -45,10 +46,10 @@
   <div class="table-wrap">
   <table>
     <thead><tr>
-      <th>Tên</th><th>Địa chỉ</th><th>Trạng thái</th><th class="num">Lỗi liên tiếp</th>
+      <th>Tên</th><th>Địa chỉ</th><th>Nhóm</th><th>Trạng thái</th><th class="num">Lỗi liên tiếp</th>
       <th class="num">RTT (ms)</th><th>Kết nối 24h</th><th>Kết nối 7 ngày</th><th>Kiểm tra lần cuối</th>
     </tr></thead>
-    <tbody id="hostRows"><tr><td colspan="8" class="muted">Đang tải...</td></tr></tbody>
+    <tbody id="hostRows"><tr><td colspan="9" class="muted">Đang tải...</td></tr></tbody>
   </table>
   </div>
   <div class="pager" id="hostPager"></div>
@@ -57,12 +58,13 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='chart.umd.min.js') }}"></script>
 <script>
-let trendChart, statusChart, page = 1, size = 20;
+let statusChart, page = 1, size = 20;
 
 function params() {
   const p = new URLSearchParams({ page, size });
   if (filter.value.trim()) p.set('q', filter.value.trim());
   if (statusFilter.value) p.set('status', statusFilter.value);
+  setGroup(p, groupFilter);
   return p;
 }
 
@@ -78,27 +80,22 @@ async function load() {
     <tr>
       <td><b>${esc(h.name)}</b>${h.description ? `<div class="muted">${esc(h.description)}</div>` : ''}</td>
       <td>${esc(h.ip)}</td>
+      <td>${esc(h.grp)}</td>
       <td>${statusBadge(h.status, h.enabled)}${h.status === 'down' && h.enabled ? `<div class="muted">${fmtAgo(h.last_change)}</div>` : ''}</td>
       <td class="num">${h.consecutive_fail}</td>
       <td class="num">${h.last_rtt ?? '—'}</td>
       <td>${pctCell(h.avail_24h)}</td>
       <td>${pctCell(h.avail_7d)}</td>
       <td title="${fmtTime(h.last_check)}">${fmtAgo(h.last_check)}</td>
-    </tr>`).join('') : '<tr><td colspan="8" class="muted">Không có địa chỉ.</td></tr>';
+    </tr>`).join('') : '<tr><td colspan="9" class="muted">Không có địa chỉ.</td></tr>';
   pager(hostPager, data.total, data.page, data.size, (p, s) => { page = p; size = s; load(); });
 
-  const labels = data.trend.map(t => t.label), vals = data.trend.map(t => t.avail);
-  if (!trendChart) {
-    trendChart = new Chart(document.getElementById('trendChart'), {
-      type: 'line',
-      data: { labels, datasets: [{ label: 'Tỷ lệ kết nối (%)', data: vals, borderColor: '#2563eb',
-        backgroundColor: 'rgba(37,99,235,.12)', fill: true, tension: .3, pointRadius: 2 }] },
-      options: { maintainAspectRatio: false, plugins: { legend: { display: false } },
-        scales: { y: { min: 0, max: 100 }, x: { ticks: { maxTicksLimit: 8 } } } },
-    });
-  } else {
-    trendChart.data.labels = labels; trendChart.data.datasets[0].data = vals; trendChart.update();
-  }
+  outRows.innerHTML = data.outages.length ? data.outages.map((o, i) => `
+    <tr><td class="muted">${i + 1}</td>
+      <td><b>${esc(o.name)}</b><div class="muted">${esc(o.ip)}${o.grp ? ' · ' + esc(o.grp) : ''}</div></td>
+      <td class="num"><span class="count-badge">${o.n}</span></td></tr>`).join('')
+    : '<tr><td class="muted">Không có địa chỉ nào mất kết nối.</td></tr>';
+
   const sv = [c.up, c.warning, c.down, c.unknown];
   if (!statusChart) {
     statusChart = new Chart(document.getElementById('statusChart'), {
@@ -115,8 +112,9 @@ async function load() {
 }
 
 filter.oninput = debounce(() => { page = 1; load(); });
+groupFilter.onchange = () => { page = 1; load(); };
 statusFilter.onchange = () => { page = 1; load(); };
-load();
+loadGroups(groupFilter).finally(load);
 setInterval(load, 30000);
 </script>
 {% endblock %}

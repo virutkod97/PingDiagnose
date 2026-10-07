@@ -11,10 +11,10 @@
   {% endif %}
 </div>
 <div class="card">
-  <div class="form-row"><input id="filter" placeholder="Tìm tên / IP..." style="width:240px"></div>
+  <div class="form-row"><input id="filter" placeholder="Tìm tên / IP..." style="width:240px"><select id="groupFilter"></select></div>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>Tên</th><th>Địa chỉ IP</th><th>Mô tả</th><th>Trạng thái</th><th>Kiểm tra lần cuối</th>
+    <thead><tr><th>Tên</th><th>Địa chỉ IP</th><th>Nhóm</th><th>Mô tả</th><th>Trạng thái</th><th>Kiểm tra lần cuối</th>
       {% if user.role == 'admin' %}<th style="width:220px"></th>{% endif %}</tr></thead>
     <tbody id="rows"></tbody>
   </table>
@@ -29,6 +29,7 @@
     <input type="hidden" id="hId">
     <div class="field"><label>Địa chỉ IP</label><input id="hIp" required></div>
     <div class="field"><label>Tên hiển thị</label><input id="hName"></div>
+    <div class="field"><label>Nhóm</label><input id="hGrp" list="groupList" maxlength="100"><datalist id="groupList"></datalist></div>
     <div class="field"><label>Mô tả</label><textarea id="hDesc" rows="2"></textarea></div>
     <div class="field"><label><input type="checkbox" id="hEnabled" checked style="width:auto"> Đang giám sát</label></div>
     <div class="muted" id="testResult"></div>
@@ -42,7 +43,7 @@
 <div class="modal-bg" id="importModal">
   <form class="modal" id="importForm">
     <h2>Nhập danh sách địa chỉ</h2>
-    <textarea id="importText" rows="10" style="width:100%" placeholder="IP, Tên, Mô tả"></textarea>
+    <textarea id="importText" rows="10" style="width:100%" placeholder="IP, Tên, Nhóm, Mô tả"></textarea>
     <div class="modal-actions">
       <button type="button" onclick="closeModal('importModal')">Huỷ</button>
       <button type="submit" class="btn-primary">Nhập</button>
@@ -57,25 +58,34 @@ let hosts = [], page = 1, size = 20;
 async function load() {
   const p = new URLSearchParams({ page, size });
   if (filter.value.trim()) p.set('q', filter.value.trim());
+  setGroup(p, groupFilter);
   const d = await api('/api/hosts?' + p);
   hosts = d.hosts;
   rows.innerHTML = hosts.length ? hosts.map(h => `
     <tr>
-      <td><b>${esc(h.name)}</b></td><td>${esc(h.ip)}</td><td class="muted">${esc(h.description)}</td>
+      <td><b>${esc(h.name)}</b></td><td>${esc(h.ip)}</td><td>${esc(h.grp)}</td><td class="muted">${esc(h.description)}</td>
       <td>${statusBadge(h.status, h.enabled)}</td><td title="${fmtTime(h.last_check)}">${fmtAgo(h.last_check)}</td>
       ${APP.isAdmin ? `<td>
         <button class="btn-sm" onclick="openEdit(${h.id})">Sửa</button>
         <button class="btn-sm" onclick="toggle(${h.id})">${h.enabled ? 'Tạm dừng' : 'Bật lại'}</button>
         <button class="btn-sm btn-danger" onclick="del(${h.id})">Xoá</button></td>` : ''}
-    </tr>`).join('') : `<tr><td colspan="6" class="muted">Không có địa chỉ.</td></tr>`;
+    </tr>`).join('') : `<tr><td colspan="7" class="muted">Không có địa chỉ.</td></tr>`;
   pager(hostPager, d.total, d.page, d.size, (p2, s2) => { page = p2; size = s2; load(); });
 }
 filter.oninput = debounce(() => { page = 1; load(); });
+groupFilter.onchange = () => { page = 1; load(); };
+async function refreshGroups() {
+  const cur = groupFilter.value;
+  const gs = await loadGroups(groupFilter);
+  if ([...groupFilter.options].some(o => o.value === cur)) groupFilter.value = cur;
+  const dl = document.getElementById('groupList');
+  if (dl) dl.innerHTML = gs.filter(g => g.grp).map(g => `<option value="${esc(g.grp)}">`).join('');
+}
 
 function openEdit(id) {
-  const h = hosts.find(x => x.id === id) || { id: '', ip: '', name: '', description: '', enabled: 1 };
+  const h = hosts.find(x => x.id === id) || { id: '', ip: '', name: '', grp: '', description: '', enabled: 1 };
   editTitle.textContent = id ? 'Sửa địa chỉ' : 'Thêm địa chỉ';
-  hId.value = h.id; hIp.value = h.ip; hName.value = h.name; hDesc.value = h.description; hEnabled.checked = !!h.enabled;
+  hId.value = h.id; hIp.value = h.ip; hName.value = h.name; hGrp.value = h.grp || ''; hDesc.value = h.description; hEnabled.checked = !!h.enabled;
   testResult.textContent = '';
   openModal('editModal'); hIp.focus();
 }
@@ -93,11 +103,11 @@ async function testPing() {
 if (APP.isAdmin) {
   editForm.onsubmit = async e => {
     e.preventDefault();
-    const body = { ip: hIp.value.trim(), name: hName.value.trim(), description: hDesc.value.trim(), enabled: hEnabled.checked };
+    const body = { ip: hIp.value.trim(), name: hName.value.trim(), grp: hGrp.value.trim(), description: hDesc.value.trim(), enabled: hEnabled.checked };
     try {
       if (hId.value) await api('/api/hosts/' + hId.value, { method: 'PUT', body });
       else await api('/api/hosts', { method: 'POST', body });
-      closeModal('editModal'); toast('Đã lưu', body.ip); load();
+      closeModal('editModal'); toast('Đã lưu', body.ip); refreshGroups().finally(load);
     } catch (err) { toast('Lỗi', err.message, 'err'); }
   };
   importForm.onsubmit = async e => {
@@ -106,7 +116,7 @@ if (APP.isAdmin) {
       const r = await api('/api/hosts/import', { method: 'POST', body: { text: importText.value } });
       closeModal('importModal');
       toast('Nhập xong', `Đã thêm ${r.added} địa chỉ` + (r.errors.length ? `. ${r.errors.length} lỗi: ${r.errors.slice(0, 5).join('; ')}` : ''), r.errors.length ? 'err' : '', 15000);
-      load();
+      refreshGroups().finally(load);
     } catch (err) { toast('Lỗi', err.message, 'err'); }
   };
 }
@@ -118,9 +128,9 @@ async function toggle(id) {
 async function del(id) {
   const h = hosts.find(x => x.id === id);
   if (!confirm(`Xoá ${h.name} (${h.ip})? Toàn bộ dữ liệu lịch sử của địa chỉ này cũng bị xoá.`)) return;
-  try { await api('/api/hosts/' + id, { method: 'DELETE' }); load(); } catch (err) { toast('Lỗi', err.message, 'err'); }
+  try { await api('/api/hosts/' + id, { method: 'DELETE' }); refreshGroups().finally(load); } catch (err) { toast('Lỗi', err.message, 'err'); }
 }
-load();
+refreshGroups().finally(load);
 setInterval(load, 60000);
 </script>
 {% endblock %}

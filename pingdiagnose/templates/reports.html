@@ -4,6 +4,7 @@
 <h1>Báo cáo tình trạng kết nối</h1>
 <div class="card">
   <form class="form-row" id="repForm" style="margin:0">
+    <div class="field"><label>Nhóm</label><select id="rGroup"></select></div>
     <div class="field"><label>Địa chỉ</label><select id="rHost"><option value="">Tất cả địa chỉ</option></select></div>
     <div class="field"><label>Từ ngày</label><input type="date" id="rFrom"></div>
     <div class="field"><label>Đến ngày</label><input type="date" id="rTo"></div>
@@ -39,7 +40,7 @@
   <h2>Thống kê theo địa chỉ</h2>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>Tên</th><th>Địa chỉ</th><th class="num">Kiểm tra</th><th class="num">Thất bại</th>
+    <thead><tr><th>Tên</th><th>Địa chỉ</th><th>Nhóm</th><th class="num">Kiểm tra</th><th class="num">Thất bại</th>
       <th>Tỷ lệ kết nối</th><th class="num">Gói nhận</th><th class="num">RTT TB/min/max (ms)</th>
       <th class="num">Cảnh báo</th><th>Thời gian mất kết nối</th></tr></thead>
     <tbody id="tblRows"></tbody>
@@ -82,6 +83,7 @@ function params() {
   if (rHost.value) p.set('host_id', rHost.value);
   if (rBucket.value) p.set('bucket', rBucket.value);
   if (rStatus.value) p.set('status', rStatus.value);
+  setGroup(p, rGroup);
   return p.toString();
 }
 function renderSeries() {
@@ -122,11 +124,11 @@ async function load() {
   }
 
   tblRows.innerHTML = r.table.length ? r.table.map(x => `
-    <tr><td><b>${esc(x.name)}</b></td><td>${esc(x.ip)}</td><td class="num">${x.checks}</td><td class="num">${x.fail}</td>
+    <tr><td><b>${esc(x.name)}</b></td><td>${esc(x.ip)}</td><td>${esc(x.grp)}</td><td class="num">${x.checks}</td><td class="num">${x.fail}</td>
     <td>${pctCell(x.avail)}</td><td class="num">${fmtPct(x.packet)}</td>
     <td class="num">${x.rtt ?? '—'} / ${x.rtt_min ?? '—'} / ${x.rtt_max ?? '—'}</td>
     <td class="num">${x.down_events}</td><td>${x.downtime_text}</td></tr>`).join('')
-    : '<tr><td colspan="9" class="muted">Không có dữ liệu.</td></tr>';
+    : '<tr><td colspan="10" class="muted">Không có dữ liệu.</td></tr>';
   pager(tblPager, r.table_total, r.table_page, r.size, (p, sz) => { tpage = p; size = sz; load(); });
 
   repEvents.innerHTML = r.events.length ? r.events.map(e =>
@@ -136,6 +138,7 @@ async function load() {
 }
 (async () => {
   const hs = (await api('/api/hosts/options')).hosts;
+  await loadGroups(rGroup);
   rHost.innerHTML += hs.map(h => `<option value="${h.id}">${esc(h.name)} (${esc(h.ip)})</option>`).join('');
   const q = new URLSearchParams(location.search);
   if (q.get('host_id')) rHost.value = q.get('host_id');

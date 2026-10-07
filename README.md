@@ -9,12 +9,13 @@ Viết bằng Python (Flask + SQLite), đóng gói sẵn thành `PingDiagnose.ex
 
 | # | Chức năng | Chi tiết |
 |---|-----------|----------|
-| 1 | Khai báo IP giám sát | Thêm / sửa / xoá / tạm dừng, nhập hàng loạt (`IP, Tên, Mô tả` mỗi dòng), nút "Ping thử" |
+| 1 | Khai báo IP giám sát | Thêm / sửa / xoá / tạm dừng, phân **nhóm** (VD theo trạm), nhập hàng loạt (`IP, Tên, Nhóm, Mô tả` mỗi dòng), nút "Ping thử" |
 | 2 | Ping định kỳ | Mặc định **3 phút** một lần, **2 gói ping** mỗi địa chỉ (song song, dùng ICMP API của Windows) |
 | 3 | Theo dõi mất kết nối | Không phản hồi **3 chu kỳ liên tiếp (9 phút)** → trạng thái *Mất kết nối*, ghi vào lịch sử; ghi nhận khi phục hồi |
-| 4 | Dashboard | Số địa chỉ hoạt động / lỗi / mất kết nối, tỷ lệ kết nối & gói nhận 24h, biểu đồ theo giờ, tỷ lệ 24h/7 ngày từng IP |
+| 4 | Dashboard | Số địa chỉ hoạt động / lỗi / mất kết nối, tỷ lệ kết nối & gói nhận 24h, danh sách IP mất kết nối 24 giờ qua kèm số lần, tỷ lệ 24h/7 ngày từng IP, lọc theo nhóm |
 | 5 | Báo cáo | Chọn IP, trạng thái (đang hoạt động / mất kết nối / đang lỗi), khoảng ngày, nhóm theo giờ/ngày: biểu đồ, bảng thống kê, danh sách sự kiện, **xuất CSV (Excel)**, in |
-| 6 | Phân quyền | **Quản trị** (full quyền) và **Chỉ xem** |
+| 6 | Thống kê mất kết nối | Đếm số lần mất kết nối của từng IP theo khoảng thời gian, lọc theo nhóm, sắp xếp giảm dần, xuất CSV |
+| 7 | Phân quyền | **Quản trị** (full quyền) và **Chỉ xem** |
 
 Tên Dashboard, chu kỳ, số gói, timeout, ngưỡng cảnh báo, số ngày lưu dữ liệu chỉnh trong trang **Cấu hình**.
 

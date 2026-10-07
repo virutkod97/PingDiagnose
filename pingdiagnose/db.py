@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS hosts (
     name TEXT NOT NULL,
     ip TEXT NOT NULL UNIQUE COLLATE NOCASE,
     description TEXT NOT NULL DEFAULT '',
+    grp TEXT NOT NULL DEFAULT '',
     enabled INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'unknown',
     consecutive_fail INTEGER NOT NULL DEFAULT 0,
@@ -117,6 +118,11 @@ def execute(sql, params=()):
 def init_db():
     with tx() as conn:
         conn.executescript(SCHEMA)
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(hosts)")]
+        if "grp" not in cols:
+            conn.execute("ALTER TABLE hosts ADD COLUMN grp TEXT NOT NULL DEFAULT ''")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_hosts_grp ON hosts(grp)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_events_type_ts ON events(type, ts)")
         for k, v in DEFAULT_SETTINGS.items():
             conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
         if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:

@@ -185,8 +185,11 @@ def create_app():
         where, params = [], []
         q = (request.args.get("q") or "").strip()
         if q:
-            where.append("(h.name LIKE ? OR h.ip LIKE ? OR h.description LIKE ?)")
-            params += [f"%{q}%"] * 3
+            where.append("(h.name LIKE ? OR h.ip LIKE ? OR h.description LIKE ? OR h.grp LIKE ?)")
+            params += [f"%{q}%"] * 4
+        if request.args.get("group") is not None and request.args.get("group") != "*":
+            where.append("h.grp = ?")
+            params.append(request.args["group"].strip())
         st = request.args.get("status")
         if st in ("up", "down", "warning", "unknown"):
             where.append("h.enabled = 1 AND h.status = ?")
@@ -228,16 +231,12 @@ def create_app():
         out = []
         for h in hosts:
             s24, s7 = stats24.get(h["id"]), stats7.get(h["id"])
-            item = {k: h[k] for k in ("id", "name", "ip", "description", "enabled", "status",
+            item = {k: h[k] for k in ("id", "name", "ip", "description", "grp", "enabled", "status",
                                       "consecutive_fail", "last_check", "last_rtt", "last_change")}
             item["avail_24h"] = pct(s24["ok"], s24["n"]) if s24 else None
             item["avail_7d"] = pct(s7["ok"], s7["n"]) if s7 else None
             out.append(item)
-        off = tz_offset()
-        trend = db.query(
-            "SELECT ((ts + ?) / 3600) * 3600 - ? AS b, COUNT(*) n, SUM(received > 0) ok, AVG(rtt_avg) rtt "
-            "FROM checks c JOIN hosts h ON h.id = c.host_id AND h.enabled = 1 "
-            "WHERE ts >= ? GROUP BY b ORDER BY b", (off, off, day))
+        outages = outage_rows(day, now, limit=50)["rows"]
         events = db.query(
             "SELECT e.*, h.name, h.ip FROM events e LEFT JOIN hosts h ON h.id = e.host_id "
             "ORDER BY e.id DESC LIMIT 10")
@@ -246,9 +245,7 @@ def create_app():
             avail_24h=pct(tot["ok"], tot["n"]),
             packet_24h=pct(tot["recv"], tot["sent"]),
             hosts=out, total=total, page=page, size=size,
-            trend=[{"ts": r["b"], "label": time.strftime("%H:%M", time.localtime(r["b"])),
-                    "avail": pct(r["ok"], r["n"]),
-                    "rtt": round(r["rtt"], 1) if r["rtt"] is not None else None} for r in trend],
+            outages=outages,
             events=[fmt_event(e) for e in events],
         )
 
@@ -265,17 +262,24 @@ def create_app():
     @app.route("/api/hosts/options")
     @login_required
     def api_host_options():
-        return jsonify(hosts=db.query("SELECT id, name, ip FROM hosts ORDER BY name COLLATE NOCASE"))
+        return jsonify(hosts=db.query("SELECT id, name, ip, grp FROM hosts ORDER BY name COLLATE NOCASE"))
+
+    @app.route("/api/groups")
+    @login_required
+    def api_groups():
+        rows = db.query("SELECT grp, COUNT(*) n FROM hosts GROUP BY grp ORDER BY grp = '', grp COLLATE NOCASE")
+        return jsonify(groups=rows)
 
     def clean_host(data):
         ip = (data.get("ip") or "").strip()
         name = (data.get("name") or "").strip() or ip
         desc = (data.get("description") or "").strip()
+        grp = (data.get("grp") or "").strip()
         if not valid_target(ip):
             return None, f"Địa chỉ không hợp lệ: {ip or '(trống)'}"
-        if len(name) > 100 or len(desc) > 500:
-            return None, "Tên hoặc mô tả quá dài"
-        return {"ip": ip, "name": name, "description": desc,
+        if len(name) > 100 or len(desc) > 500 or len(grp) > 100:
+            return None, "Tên, nhóm hoặc mô tả quá dài"
+        return {"ip": ip, "name": name, "description": desc, "grp": grp,
                 "enabled": 1 if data.get("enabled", True) else 0}, None
 
     @app.route("/api/hosts", methods=["POST"])
@@ -287,8 +291,8 @@ def create_app():
         if db.query_one("SELECT id FROM hosts WHERE ip = ?", (h["ip"],)):
             return jsonify(error=f"Địa chỉ {h['ip']} đã tồn tại"), 400
         hid = db.execute(
-            "INSERT INTO hosts(name, ip, description, enabled, created_at) VALUES (?,?,?,?,?)",
-            (h["name"], h["ip"], h["description"], h["enabled"], int(time.time())))
+            "INSERT INTO hosts(name, ip, description, grp, enabled, created_at) VALUES (?,?,?,?,?,?)",
+            (h["name"], h["ip"], h["description"], h["grp"], h["enabled"], int(time.time())))
         log.info("%s thêm địa chỉ %s", g.user["username"], h["ip"])
         return jsonify(id=hid)
 
@@ -303,15 +307,16 @@ def create_app():
                 continue
             parts = [p.strip() for p in line.replace(";", ",").replace("\t", ",").split(",")]
             h, err = clean_host({"ip": parts[0], "name": parts[1] if len(parts) > 1 else "",
-                                 "description": parts[2] if len(parts) > 2 else ""})
+                                 "grp": parts[2] if len(parts) > 2 else "",
+                                 "description": ", ".join(parts[3:]) if len(parts) > 3 else ""})
             if err:
                 errors.append(f"Dòng {ln}: {err}")
                 continue
             if db.query_one("SELECT id FROM hosts WHERE ip = ?", (h["ip"],)):
                 errors.append(f"Dòng {ln}: {h['ip']} đã tồn tại")
                 continue
-            db.execute("INSERT INTO hosts(name, ip, description, enabled, created_at) VALUES (?,?,?,?,?)",
-                       (h["name"], h["ip"], h["description"], 1, int(time.time())))
+            db.execute("INSERT INTO hosts(name, ip, description, grp, enabled, created_at) VALUES (?,?,?,?,?,?)",
+                       (h["name"], h["ip"], h["description"], h["grp"], 1, int(time.time())))
             added += 1
         return jsonify(added=added, errors=errors)
 
@@ -329,8 +334,8 @@ def create_app():
             return jsonify(error=f"Địa chỉ {h['ip']} đã tồn tại"), 400
         reset = h["ip"].lower() != cur["ip"].lower() or (h["enabled"] and not cur["enabled"])
         with db.tx() as conn:
-            conn.execute("UPDATE hosts SET name=?, ip=?, description=?, enabled=? WHERE id=?",
-                         (h["name"], h["ip"], h["description"], h["enabled"], hid))
+            conn.execute("UPDATE hosts SET name=?, ip=?, description=?, grp=?, enabled=? WHERE id=?",
+                         (h["name"], h["ip"], h["description"], h["grp"], h["enabled"], hid))
             if reset:
                 conn.execute("UPDATE hosts SET status='unknown', consecutive_fail=0, last_change=NULL "
                              "WHERE id=?", (hid,))
@@ -404,6 +409,9 @@ def create_app():
         if status in ("up", "down", "warning"):
             scope.append("enabled = 1 AND status = ?")
             params.append(status)
+        if request.args.get("group") is not None and request.args.get("group") != "*":
+            scope.append("grp = ?")
+            params.append(request.args["group"].strip())
         sub = f"SELECT id FROM hosts WHERE {' AND '.join(scope)}" if scope else ""
         hfilter = f" AND c.host_id IN ({sub})" if sub else ""
         rows = db.query(
@@ -448,7 +456,7 @@ def create_app():
             e_page = max(1, request.args.get("epage", 1, type=int))
             t_limit = f" LIMIT {psize} OFFSET {(t_page - 1) * psize}"
         summary = db.query(
-            "SELECT h.id, h.name, h.ip, COUNT(c.id) n, SUM(c.received > 0) ok, SUM(c.sent) sent, "
+            "SELECT h.id, h.name, h.ip, h.grp, COUNT(c.id) n, SUM(c.received > 0) ok, SUM(c.sent) sent, "
             "SUM(c.received) recv, AVG(c.rtt_avg) rtt, MIN(c.rtt_avg) rtt_min, MAX(c.rtt_avg) rtt_max "
             "FROM hosts h LEFT JOIN checks c ON c.host_id = h.id AND c.ts >= ? AND c.ts < ?"
             f"{h_where} GROUP BY h.id ORDER BY h.name COLLATE NOCASE{t_limit}", [start, end] + params)
@@ -462,7 +470,7 @@ def create_app():
         for x in summary:
             n, ok = x["n"] or 0, x["ok"] or 0
             table.append({
-                "id": x["id"], "name": x["name"], "ip": x["ip"],
+                "id": x["id"], "name": x["name"], "ip": x["ip"], "grp": x["grp"],
                 "checks": n, "ok": ok, "fail": n - ok,
                 "avail": pct(ok, n), "packet": pct(x["recv"], x["sent"]),
                 "rtt": round(x["rtt"], 1) if x["rtt"] is not None else None,
@@ -483,6 +491,71 @@ def create_app():
             "events": [fmt_event(e) for e in events], "events_total": e_total, "events_page": e_page,
         }
 
+    def outage_rows(start, end, where="", params=(), limit=None, offset=0):
+        now = int(time.time())
+        end_cap = min(end, now)
+        st = db.get_settings()
+        lead = max(0, st["fail_threshold"] - 1) * st["interval_seconds"]
+        base = ("FROM events e JOIN hosts h ON h.id = e.host_id "
+                f"WHERE e.type = 'down' AND e.ts >= ? AND e.ts < ?{where}")
+        args = [start, end] + list(params)
+        agg = db.query_one(f"SELECT COUNT(DISTINCT e.host_id) hosts, COUNT(*) n {base}", args)
+        lim = f" LIMIT {int(limit)} OFFSET {int(offset)}" if limit else ""
+        rows = db.query(
+            "SELECT h.id, h.name, h.ip, h.grp, h.status, h.enabled, COUNT(*) n, MAX(e.ts) last, "
+            "SUM(MAX(0, MIN(COALESCE((SELECT MIN(u.ts) FROM events u WHERE u.host_id = e.host_id "
+            "AND u.type = 'up' AND u.ts > e.ts), ?), ?) - e.ts) + ?) dur "
+            f"{base} GROUP BY h.id ORDER BY n DESC, last DESC, h.name COLLATE NOCASE{lim}",
+            [now, end_cap, lead] + args)
+        for r in rows:
+            r["last_time"] = time.strftime("%H:%M %d/%m/%Y", time.localtime(r["last"]))
+            r["dur_text"] = fmt_dur(r["dur"])
+        return {"rows": rows, "hosts": agg["hosts"] or 0, "outages": agg["n"] or 0}
+
+    def outage_query():
+        start, end, _, _, d_from, d_to = report_params()
+        where, params = "", []
+        q = (request.args.get("q") or "").strip()
+        if q:
+            where += " AND (h.name LIKE ? OR h.ip LIKE ?)"
+            params += [f"%{q}%"] * 2
+        if request.args.get("group") is not None and request.args.get("group") != "*":
+            where += " AND h.grp = ?"
+            params.append(request.args["group"].strip())
+        return start, end, where, params, d_from, d_to
+
+    @app.route("/outages")
+    @login_required
+    def outages_page():
+        return render_template("outages.html", page="outages")
+
+    @app.route("/api/outages")
+    @login_required
+    def api_outages():
+        start, end, where, params, d_from, d_to = outage_query()
+        page, size, offset = page_args()
+        r = outage_rows(start, end, where, params, size, offset)
+        return jsonify(rows=r["rows"], total=r["hosts"], outages=r["outages"], page=page, size=size,
+                       **{"from": d_from.strftime("%Y-%m-%d"), "to": d_to.strftime("%Y-%m-%d")})
+
+    @app.route("/api/outages.csv")
+    @login_required
+    def api_outages_csv():
+        start, end, where, params, d_from, d_to = outage_query()
+        r = outage_rows(start, end, where, params)
+        buf = io.StringIO()
+        buf.write("\ufeff")
+        writer = csv.writer(buf)
+        safe = lambda v: "'" + v if isinstance(v, str) and v[:1] in ("=", "+", "-", "@") else v
+        writer.writerow([f"Thống kê mất kết nối từ {d_from:%d/%m/%Y} đến {d_to:%d/%m/%Y}"])
+        writer.writerow([])
+        writer.writerow(["STT", "Tên", "Địa chỉ", "Nhóm", "Số lần mất kết nối", "Thời gian mất kết nối", "Lần gần nhất"])
+        for i, x in enumerate(r["rows"], 1):
+            writer.writerow([i] + [safe(v) for v in (x["name"], x["ip"], x["grp"])] + [x["n"], x["dur_text"], x["last_time"]])
+        fname = f"mat_ket_noi_{d_from:%Y-%m-%d}_{d_to:%Y-%m-%d}.csv"
+        return Response(buf.getvalue(), mimetype="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f"attachment; filename={fname}"})
+
     @app.route("/api/report")
     @login_required
     def api_report():
@@ -501,11 +574,11 @@ def create_app():
 
         put([f"Báo cáo kết nối từ {rep['from']} đến {rep['to']}"])
         put([])
-        put(["Tên", "Địa chỉ", "Số lần kiểm tra", "Thành công", "Thất bại",
+        put(["Tên", "Địa chỉ", "Nhóm", "Số lần kiểm tra", "Thành công", "Thất bại",
              "Tỷ lệ kết nối (%)", "Tỷ lệ gói nhận (%)", "RTT TB (ms)", "RTT min", "RTT max",
              "Số lần mất kết nối", "Thời gian mất kết nối"])
         for r in rep["table"]:
-            put([r["name"], r["ip"], r["checks"], r["ok"], r["fail"], r["avail"], r["packet"],
+            put([r["name"], r["ip"], r["grp"], r["checks"], r["ok"], r["fail"], r["avail"], r["packet"],
                  r["rtt"], r["rtt_min"], r["rtt_max"], r["down_events"], r["downtime_text"]])
         put([])
         put(["Thời gian", "Số lần kiểm tra", "Thành công", "Thất bại", "Tỷ lệ kết nối (%)",

@@ -72,6 +72,17 @@ function pager(el, total, page, size, go) {
   el.querySelector('select').onchange = e => go(1, +e.target.value);
 }
 
+async function loadGroups(sel) {
+  const d = await api('/api/groups');
+  sel.innerHTML = '<option value="*">Tất cả nhóm</option>' + d.groups.map(g =>
+    `<option value="${esc(g.grp)}">${g.grp ? esc(g.grp) : '(Không có nhóm)'} (${g.n})</option>`).join('');
+  return d.groups;
+}
+
+function setGroup(p, sel) {
+  if (sel && sel.value !== '*' && sel.value !== undefined && sel.options.length) p.set('group', sel.value);
+}
+
 function debounce(fn, ms = 300) {
   let t;
   return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };

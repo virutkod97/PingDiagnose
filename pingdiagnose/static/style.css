@@ -38,6 +38,8 @@ h2 { font-size: 16px; margin: 0 0 12px; }
 .three .card { margin-bottom: 0; display: flex; flex-direction: column; }
 .panel-body { height: 280px; position: relative; }
 .panel-body.scroll { overflow-y: auto; }
+table.compact td { padding: 7px 6px; }
+.count-badge { display: inline-block; min-width: 28px; padding: 2px 8px; border-radius: 999px; background: #fee2e2; color: #b91c1c; font-weight: 700; text-align: center; }
 .pager { display: flex; gap: 6px; align-items: center; justify-content: flex-end; flex-wrap: wrap; margin-top: 12px; }
 .pager button:disabled { opacity: .4; cursor: default; }
 .pager select { padding: 3px 6px; }

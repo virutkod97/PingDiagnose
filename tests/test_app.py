@@ -169,3 +169,65 @@ def test_title_status_filter_and_cert_renew(client):
     assert r["ca_new"] is False and r["days_left"] > 700
     assert open(os.path.join(data_dir(), "server.crt")).read() != old
     assert client.get("/api/cert").get_json()["days_left"] > 700
+
+
+def test_groups_and_outages(client):
+    tok = setup_admin(client)
+    h = {"X-CSRF-Token": tok}
+    r = client.post("/api/hosts/import", json={"text": "10.1.0.1, IED A, TBA Hà Nam, rơ le\n10.1.0.2, IED B, TBA Hà Nam\n10.2.0.1, IED C, TBA Nam Định\n10.3.0.1, IED D"}, headers=h).get_json()
+    assert r["added"] == 4
+    assert client.post("/api/hosts", json={"ip": "10.4.0.1", "name": "E", "grp": "TBA Ninh Bình"}, headers=h).status_code == 200
+    groups = {g["grp"]: g["n"] for g in client.get("/api/groups").get_json()["groups"]}
+    assert groups == {"TBA Hà Nam": 2, "TBA Nam Định": 1, "TBA Ninh Bình": 1, "": 1}
+    a = client.get("/api/hosts?group=TBA Hà Nam").get_json()
+    assert a["total"] == 2 and a["hosts"][0]["description"] == "rơ le"
+    assert client.get("/api/hosts?group=").get_json()["total"] == 1
+    assert client.get("/api/dashboard?group=TBA Nam Định").get_json()["total"] == 1
+    hid = client.get("/api/hosts?q=10.3.0.1").get_json()["hosts"][0]["id"]
+    assert client.put(f"/api/hosts/{hid}", json={"ip": "10.3.0.1", "name": "IED D", "grp": "TBA Nam Định"}, headers=h).status_code == 200
+    assert client.get("/api/hosts?group=TBA Nam Định").get_json()["total"] == 2
+
+    from pingdiagnose import db
+    now = int(time.time())
+    ids = {x["ip"]: x["id"] for x in client.get("/api/hosts/options").get_json()["hosts"]}
+    with db.tx() as conn:
+        for ip, times in (("10.1.0.1", 1), ("10.2.0.1", 3), ("10.4.0.1", 2)):
+            for k in range(times):
+                t = now - 3600 * (k + 1)
+                conn.execute("INSERT INTO events(host_id, ts, type, message) VALUES (?, ?, 'down', 'x')", (ids[ip], t))
+                conn.execute("INSERT INTO events(host_id, ts, type, message) VALUES (?, ?, 'up', 'y')", (ids[ip], t + 600))
+        conn.execute("INSERT INTO events(host_id, ts, type, message) VALUES (?, ?, 'down', 'x')", (ids["10.1.0.2"], now - 3 * 86400))
+    d = client.get("/api/dashboard").get_json()
+    assert [(o["ip"], o["n"]) for o in d["outages"]] == [("10.2.0.1", 3), ("10.4.0.1", 2), ("10.1.0.1", 1)]
+    o = client.get("/api/outages").get_json()
+    assert [(x["ip"], x["n"]) for x in o["rows"]] == [("10.2.0.1", 3), ("10.4.0.1", 2), ("10.1.0.1", 1), ("10.1.0.2", 1)]
+    assert o["total"] == 4 and o["outages"] == 7
+    lead = 2 * 180
+    assert o["rows"][0]["dur"] == 3 * (600 + lead)
+    g = client.get("/api/outages?group=TBA Hà Nam").get_json()
+    assert [x["ip"] for x in g["rows"]] == ["10.1.0.1", "10.1.0.2"]
+    assert client.get("/api/outages?q=10.4").get_json()["total"] == 1
+    csv_text = client.get("/api/outages.csv").get_data(as_text=True)
+    assert csv_text.index("10.2.0.1") < csv_text.index("10.4.0.1") < csv_text.index("10.1.0.1")
+    rep = client.get("/api/report?group=TBA Nam Định").get_json()
+    assert sorted(x["ip"] for x in rep["table"]) == ["10.2.0.1", "10.3.0.1"]
+    assert rep["table"][0]["grp"] == "TBA Nam Định"
+    assert client.get("/outages").status_code == 200
+
+
+def test_migrate_old_db(monkeypatch):
+    import sqlite3
+    d = tempfile.mkdtemp()
+    monkeypatch.setenv("PINGDIAGNOSE_DATA", d)
+    old = sqlite3.connect(os.path.join(d, "pingdiagnose.db"))
+    old.executescript("""CREATE TABLE hosts (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+        ip TEXT NOT NULL UNIQUE COLLATE NOCASE, description TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL DEFAULT 'unknown', consecutive_fail INTEGER NOT NULL DEFAULT 0, last_check INTEGER,
+        last_rtt REAL, last_change INTEGER, created_at INTEGER NOT NULL);
+        INSERT INTO hosts(name, ip, created_at) VALUES ('cũ', '10.9.9.9', 0);""")
+    old.commit(); old.close()
+    from pingdiagnose import db
+    db._local.__dict__.clear()
+    db.init_db()
+    assert db.query_one("SELECT grp FROM hosts WHERE ip = '10.9.9.9'")["grp"] == ""
+    db._local.__dict__.clear()
