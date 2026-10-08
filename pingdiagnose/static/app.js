@@ -43,7 +43,7 @@ function pctCell(v) {
   return `<div class="pct-cell"><div class="bar"><span style="width:${v}%;background:${color}"></span></div><span>${fmtPct(v)}</span></div>`;
 }
 
-const STATUS_TEXT = { up: 'Hoạt động', down: 'Mất kết nối', warning: 'Đang lỗi', unknown: 'Chưa kiểm tra' };
+const STATUS_TEXT = { up: 'Hoạt động', down: 'Mất kết nối', warning: 'Cảnh báo', unknown: 'Chưa kiểm tra' };
 function statusBadge(status, enabled = 1) {
   if (!enabled) return '<span class="badge b-off">Tạm dừng</span>';
   return `<span class="badge b-${status}">${STATUS_TEXT[status] || status}</span>`;

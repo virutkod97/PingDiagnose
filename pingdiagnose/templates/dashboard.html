@@ -6,7 +6,7 @@
 <div class="grid kpis">
   <div class="kpi"><div class="label">Tổng địa chỉ</div><div class="value" id="kTotal">–</div></div>
   <div class="kpi ok"><div class="label">Hoạt động</div><div class="value" id="kUp">–</div></div>
-  <div class="kpi warn"><div class="label">Đang lỗi</div><div class="value" id="kWarn">–</div></div>
+  <div class="kpi warn"><div class="label">Cảnh báo</div><div class="value" id="kWarn">–</div></div>
   <div class="kpi down"><div class="label">Mất kết nối</div><div class="value" id="kDown">–</div></div>
   <div class="kpi"><div class="label">Tỷ lệ kết nối 24h</div><div class="value" id="kAvail">–</div></div>
   <div class="kpi"><div class="label">Tỷ lệ gói nhận 24h</div><div class="value" id="kPacket">–</div></div>
@@ -36,7 +36,7 @@
       <select id="statusFilter">
         <option value="">Tất cả trạng thái</option>
         <option value="down">Mất kết nối</option>
-        <option value="warning">Đang lỗi</option>
+        <option value="warning">Cảnh báo</option>
         <option value="up">Hoạt động</option>
         <option value="unknown">Chưa kiểm tra</option>
         <option value="off">Tạm dừng</option>
@@ -103,7 +103,7 @@ async function load() {
   if (!statusChart) {
     statusChart = new Chart(document.getElementById('statusChart'), {
       type: 'doughnut',
-      data: { labels: ['Hoạt động', 'Đang lỗi', 'Mất kết nối', 'Chưa kiểm tra'],
+      data: { labels: ['Hoạt động', 'Cảnh báo', 'Mất kết nối', 'Chưa kiểm tra'],
               datasets: [{ data: sv, backgroundColor: ['#16a34a', '#d97706', '#dc2626', '#94a3b8'] }] },
       options: { maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } },
     });

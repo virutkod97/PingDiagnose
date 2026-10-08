@@ -13,7 +13,7 @@ Viết bằng Python (Flask + SQLite), đóng gói sẵn thành `PingDiagnose.ex
 | 2 | Ping định kỳ | Mặc định **3 phút** một lần, **2 gói ping** mỗi địa chỉ (song song, dùng ICMP API của Windows) |
 | 3 | Theo dõi mất kết nối | Không phản hồi **3 chu kỳ liên tiếp (9 phút)** → trạng thái *Mất kết nối*, ghi vào lịch sử; ghi nhận khi phục hồi |
 | 4 | Dashboard | Số địa chỉ hoạt động / lỗi / mất kết nối, tỷ lệ kết nối & gói nhận 24h, danh sách IP mất kết nối 24 giờ qua kèm số lần, tỷ lệ 24h/7 ngày từng IP, lọc theo nhóm |
-| 5 | Báo cáo | Chọn IP, trạng thái (đang hoạt động / mất kết nối / đang lỗi), khoảng ngày, nhóm theo giờ/ngày: biểu đồ, bảng thống kê, danh sách sự kiện, **xuất CSV (Excel)**, in |
+| 5 | Báo cáo | Chọn IP, trạng thái (đang hoạt động / mất kết nối / cảnh báo), khoảng ngày, nhóm theo giờ/ngày: biểu đồ, bảng thống kê, danh sách sự kiện, **xuất CSV (Excel)**, in |
 | 6 | Thống kê mất kết nối | Đếm số lần mất kết nối của từng IP theo khoảng thời gian, lọc theo nhóm, sắp xếp giảm dần, xuất CSV |
 | 7 | Phân quyền | **Quản trị** (full quyền) và **Chỉ xem** |
 
@@ -73,7 +73,7 @@ Sau khi đổi cấu hình: `sc stop PingDiagnose & sc start PingDiagnose`.
 
 - **Tỷ lệ kết nối** = số lần kiểm tra có ít nhất 1 gói phản hồi / tổng số lần kiểm tra.
 - **Tỷ lệ gói nhận** = tổng gói nhận / tổng gói gửi.
-- **Trạng thái**: *Hoạt động* (có phản hồi), *Đang lỗi* (mất phản hồi, chưa đủ ngưỡng), *Mất kết nối* (≥ ngưỡng chu kỳ liên tiếp).
+- **Trạng thái**: *Hoạt động* (có phản hồi), *Cảnh báo* (mất phản hồi, chưa đủ ngưỡng), *Mất kết nối* (≥ ngưỡng chu kỳ liên tiếp).
 - **Thời gian mất kết nối (ước tính)** = số lần kiểm tra thất bại × chu kỳ.
 
 ## Build từ mã nguồn

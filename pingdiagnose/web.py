@@ -12,7 +12,7 @@ from flask import (Flask, Response, abort, g, jsonify, redirect, render_template
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import certs, db
-from .config import APP_NAME, VERSION, data_dir, load_config, resource_dir, secret_key
+from .config import APP_NAME, DISPLAY_NAME, VERSION, data_dir, load_config, resource_dir, secret_key
 from .pinger import ping, valid_target
 
 log = logging.getLogger("pingdiagnose.web")
@@ -63,7 +63,7 @@ def create_app():
     def inject():
         if "csrf" not in session:
             session["csrf"] = secrets.token_urlsafe(32)
-        return {"user": g.get("user"), "csrf_token": session["csrf"], "app_name": APP_NAME,
+        return {"user": g.get("user"), "csrf_token": session["csrf"], "app_name": DISPLAY_NAME,
                 "version": VERSION}
 
     def login_required(fn):
@@ -778,12 +778,12 @@ def create_app():
     @app.route("/ca.crt")
     def ca_cert():
         return Response(certs.ca_pem(), mimetype="application/x-x509-ca-cert",
-                        headers={"Content-Disposition": "attachment; filename=PingDiagnose-CA.crt"})
+                        headers={"Content-Disposition": "attachment; filename=IED-Monitor-CA.crt"})
 
     @app.route("/install-ca.bat")
     def install_ca():
         return Response(certs.install_ca_bat(), mimetype="application/octet-stream",
-                        headers={"Content-Disposition": "attachment; filename=PingDiagnose-cai-chung-chi.bat"})
+                        headers={"Content-Disposition": "attachment; filename=IED-Monitor-cai-chung-chi.bat"})
 
     @app.route("/api/cert")
     @login_required
