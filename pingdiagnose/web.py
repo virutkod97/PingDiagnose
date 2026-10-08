@@ -203,14 +203,15 @@ def create_app():
     def api_dashboard():
         now = int(time.time())
         day, week = now - 86400, now - 7 * 86400
+        day_h, week_h = day // 3600 * 3600, week // 3600 * 3600
         c = db.query_one(
             "SELECT COUNT(*) total, SUM(enabled) enabled, "
             "SUM(enabled AND status='up') up, SUM(enabled AND status='warning') warning, "
             "SUM(enabled AND status='down') down, SUM(enabled AND status='unknown') unknown FROM hosts")
         counts = {k: c[k] or 0 for k in c}
         tot = db.query_one(
-            "SELECT COUNT(*) n, SUM(c.received > 0) ok, SUM(c.sent) sent, SUM(c.received) recv "
-            "FROM checks c JOIN hosts h ON h.id = c.host_id AND h.enabled = 1 WHERE c.ts >= ?", (day,))
+            "SELECT SUM(x.n) n, SUM(x.ok) ok, SUM(x.sent) sent, SUM(x.recv) recv "
+            "FROM checks_hourly x JOIN hosts h ON h.id = x.host_id AND h.enabled = 1 WHERE x.hour >= ?", (day_h,))
         page, size, offset = page_args()
         where, params = host_filter()
         total = db.query_one(f"SELECT COUNT(*) n FROM hosts h{where}", params)["n"]
@@ -223,11 +224,11 @@ def create_app():
         if ids:
             marks = ",".join("?" * len(ids))
             stats24 = {r["host_id"]: r for r in db.query(
-                "SELECT host_id, COUNT(*) n, SUM(received > 0) ok FROM checks "
-                f"WHERE ts >= ? AND host_id IN ({marks}) GROUP BY host_id", [day] + ids)}
+                "SELECT host_id, SUM(n) n, SUM(ok) ok FROM checks_hourly "
+                f"WHERE hour >= ? AND host_id IN ({marks}) GROUP BY host_id", [day_h] + ids)}
             stats7 = {r["host_id"]: r for r in db.query(
-                "SELECT host_id, COUNT(*) n, SUM(received > 0) ok FROM checks "
-                f"WHERE ts >= ? AND host_id IN ({marks}) GROUP BY host_id", [week] + ids)}
+                "SELECT host_id, SUM(n) n, SUM(ok) ok FROM checks_hourly "
+                f"WHERE hour >= ? AND host_id IN ({marks}) GROUP BY host_id", [week_h] + ids)}
         out = []
         for h in hosts:
             s24, s7 = stats24.get(h["id"]), stats7.get(h["id"])
@@ -415,6 +416,7 @@ def create_app():
     def api_host_delete(hid):
         with db.tx() as conn:
             conn.execute("DELETE FROM checks WHERE host_id = ?", (hid,))
+            conn.execute("DELETE FROM checks_hourly WHERE host_id = ?", (hid,))
             conn.execute("DELETE FROM events WHERE host_id = ?", (hid,))
             conn.execute("DELETE FROM hosts WHERE id = ?", (hid,))
         log.info("%s xoá địa chỉ id=%s", g.user["username"], hid)
@@ -482,11 +484,11 @@ def create_app():
             scope.append("grp = ?")
             params.append(request.args["group"].strip())
         sub = f"SELECT id FROM hosts WHERE {' AND '.join(scope)}" if scope else ""
-        hfilter = f" AND c.host_id IN ({sub})" if sub else ""
+        hfilter = f" AND x.host_id IN ({sub})" if sub else ""
         rows = db.query(
-            f"SELECT ((c.ts + ?) / {size}) * {size} - ? AS b, COUNT(*) n, SUM(c.received > 0) ok, "
-            "SUM(c.sent) sent, SUM(c.received) recv, AVG(c.rtt_avg) rtt FROM checks c "
-            f"WHERE c.ts >= ? AND c.ts < ?{hfilter} GROUP BY b ORDER BY b",
+            f"SELECT ((x.hour + ?) / {size}) * {size} - ? AS b, SUM(x.n) n, SUM(x.ok) ok, "
+            "SUM(x.sent) sent, SUM(x.recv) recv, SUM(x.rtt_sum) / NULLIF(SUM(x.rtt_cnt), 0) rtt "
+            f"FROM checks_hourly x WHERE x.hour >= ? AND x.hour < ?{hfilter} GROUP BY b ORDER BY b",
             [off, off, start, end] + params)
         by_b = {r["b"]: r for r in rows}
         fmt = "%H:00 %d/%m" if bucket == "hour" else "%d/%m/%Y"
@@ -506,7 +508,7 @@ def create_app():
             })
             nxt = datetime.fromtimestamp(t) + timedelta(seconds=size)
             t = int(time.mktime(nxt.timetuple()))
-        agg = {"checks": sum(x["n"] for x in rows), "ok": sum(x["ok"] or 0 for x in rows),
+        agg = {"checks": sum(x["n"] or 0 for x in rows), "ok": sum(x["ok"] or 0 for x in rows),
                "sent": sum(x["sent"] or 0 for x in rows), "recv": sum(x["recv"] or 0 for x in rows)}
         ev_where = " WHERE e.ts >= ? AND e.ts < ?" + (f" AND e.host_id IN ({sub})" if sub else "")
         ev_params = [start, end] + params
@@ -525,9 +527,9 @@ def create_app():
             e_page = max(1, request.args.get("epage", 1, type=int))
             t_limit = f" LIMIT {psize} OFFSET {(t_page - 1) * psize}"
         summary = db.query(
-            "SELECT h.id, h.name, h.ip, h.grp, COUNT(c.id) n, SUM(c.received > 0) ok, SUM(c.sent) sent, "
-            "SUM(c.received) recv, AVG(c.rtt_avg) rtt, MIN(c.rtt_avg) rtt_min, MAX(c.rtt_avg) rtt_max "
-            "FROM hosts h LEFT JOIN checks c ON c.host_id = h.id AND c.ts >= ? AND c.ts < ?"
+            "SELECT h.id, h.name, h.ip, h.grp, SUM(x.n) n, SUM(x.ok) ok, SUM(x.sent) sent, SUM(x.recv) recv, "
+            "SUM(x.rtt_sum) / NULLIF(SUM(x.rtt_cnt), 0) rtt, MIN(x.rtt_min) rtt_min, MAX(x.rtt_max) rtt_max "
+            "FROM hosts h LEFT JOIN checks_hourly x ON x.host_id = h.id AND x.hour >= ? AND x.hour < ?"
             f"{h_where} GROUP BY h.id ORDER BY h.name COLLATE NOCASE{t_limit}", [start, end] + params)
         ids = [x["id"] for x in summary]
         downs = {}

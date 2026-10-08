@@ -4,7 +4,7 @@ import secrets
 import sys
 
 APP_NAME = "PingDiagnose"
-VERSION = "1.4.1"
+VERSION = "1.4.2"
 FROZEN = getattr(sys, "frozen", False)
 
 DEFAULT_CONFIG = {

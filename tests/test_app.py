@@ -253,3 +253,42 @@ def test_group_crud(client):
     assert client.delete(f"/api/groups/{gid}", headers=h).status_code == 200
     assert client.get("/api/hosts?group=").get_json()["total"] == 2
     assert "TBA 110kV Phủ Lý" not in [g["grp"] for g in client.get("/api/groups").get_json()["groups"]]
+
+
+def test_hourly_rollup_and_backfill(monkeypatch):
+    import sqlite3
+    d = tempfile.mkdtemp()
+    monkeypatch.setenv("PINGDIAGNOSE_DATA", d)
+    from pingdiagnose import db
+    db._local.__dict__.clear()
+    db.init_db()
+    with db.tx() as conn:
+        conn.execute("DELETE FROM settings WHERE key IN ('hourly_from', 'hourly_done')")
+        conn.execute("INSERT INTO hosts(name, ip, created_at) VALUES ('a', '10.0.0.1', 0)")
+        now = int(time.time())
+        for i in range(2000):
+            t = now - i * 180
+            ok = 0 if i % 7 == 0 else 2
+            conn.execute("INSERT INTO checks(host_id, ts, sent, received, rtt_avg) VALUES (1, ?, 2, ?, ?)",
+                         (t, ok, None if ok == 0 else float(i % 13)))
+    db.init_db()
+    cutoff = int(db.get_text("hourly_from"))
+    assert db.query_one("SELECT MIN(hour) m FROM checks_hourly")["m"] >= cutoff
+    from pingdiagnose.monitor import Monitor
+    Monitor().cleanup()
+    assert db.query_one("SELECT COUNT(*) n FROM checks")["n"] == 2000
+    assert db.backfill_hourly() > 0 and db.get_text("hourly_done") == "1"
+    raw = db.query_one("SELECT COUNT(*) n, SUM(received > 0) ok, SUM(sent) s, SUM(received) r, "
+                       "AVG(rtt_avg) rtt, MIN(rtt_avg) mn, MAX(rtt_avg) mx FROM checks")
+    hr = db.query_one("SELECT SUM(n) n, SUM(ok) ok, SUM(sent) s, SUM(recv) r, SUM(rtt_sum) / SUM(rtt_cnt) rtt, "
+                      "MIN(rtt_min) mn, MAX(rtt_max) mx FROM checks_hourly")
+    assert (raw["n"], raw["ok"], raw["s"], raw["r"], raw["mn"], raw["mx"]) == (hr["n"], hr["ok"], hr["s"], hr["r"], hr["mn"], hr["mx"])
+    assert abs(raw["rtt"] - hr["rtt"]) < 1e-9
+    from pingdiagnose.monitor import process_result
+    from pingdiagnose.pinger import PingResult
+    process_result(db.query_one("SELECT * FROM hosts"), PingResult(sent=2, received=1, rtts=[100.0]), 3, now + 5)
+    row = db.query_one("SELECT n, rtt_max FROM checks_hourly WHERE hour = ?", ((now + 5) // 3600 * 3600,))
+    assert row["rtt_max"] == 100.0
+    Monitor().cleanup()
+    assert db.query_one("SELECT MIN(ts) m FROM checks")["m"] >= now - 14 * 86400 - 1
+    db._local.__dict__.clear()

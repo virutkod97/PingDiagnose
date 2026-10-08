@@ -49,6 +49,21 @@ CREATE TABLE IF NOT EXISTS checks (
 CREATE INDEX IF NOT EXISTS idx_checks_host_ts ON checks(host_id, ts);
 CREATE INDEX IF NOT EXISTS idx_checks_ts ON checks(ts);
 
+CREATE TABLE IF NOT EXISTS checks_hourly (
+    host_id INTEGER NOT NULL,
+    hour INTEGER NOT NULL,
+    n INTEGER NOT NULL,
+    ok INTEGER NOT NULL,
+    sent INTEGER NOT NULL,
+    recv INTEGER NOT NULL,
+    rtt_sum REAL NOT NULL DEFAULT 0,
+    rtt_cnt INTEGER NOT NULL DEFAULT 0,
+    rtt_min REAL,
+    rtt_max REAL,
+    PRIMARY KEY (host_id, hour)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_hourly_hour ON checks_hourly(hour);
+
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     host_id INTEGER REFERENCES hosts(id) ON DELETE CASCADE,
@@ -90,6 +105,8 @@ def connect():
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA temp_store = MEMORY")
+        conn.execute("PRAGMA cache_size = -8000")
         _local.conn = conn
     return conn
 
@@ -128,6 +145,10 @@ def init_db():
             conn.execute("ALTER TABLE hosts ADD COLUMN grp TEXT NOT NULL DEFAULT ''")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_hosts_grp ON hosts(grp)")
         conn.execute("INSERT OR IGNORE INTO groups(name) SELECT DISTINCT grp FROM hosts WHERE grp != ''")
+        if conn.execute("SELECT 1 FROM settings WHERE key = 'hourly_from'").fetchone() is None:
+            cutoff = int(time.time()) // 3600 * 3600
+            conn.execute("INSERT INTO settings(key, value) VALUES ('hourly_from', ?)", (str(cutoff),))
+            _rollup(conn, cutoff, None)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_events_type_ts ON events(type, ts)")
         for k, v in DEFAULT_SETTINGS.items():
             conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
@@ -136,6 +157,40 @@ def init_db():
                 "INSERT INTO users(username, password_hash, role, must_change, created_at) VALUES (?,?,?,?,?)",
                 ("admin", generate_password_hash("admin"), "admin", 1, int(time.time())),
             )
+
+
+ROLLUP_SQL = (
+    "INSERT OR IGNORE INTO checks_hourly(host_id, hour, n, ok, sent, recv, rtt_sum, rtt_cnt, rtt_min, rtt_max) "
+    "SELECT host_id, ts / 3600 * 3600, COUNT(*), SUM(received > 0), SUM(sent), SUM(received), "
+    "COALESCE(SUM(rtt_avg), 0), COUNT(rtt_avg), MIN(rtt_avg), MAX(rtt_avg) FROM checks "
+    "WHERE ts >= ? {end} GROUP BY host_id, ts / 3600")
+
+
+def _rollup(conn, start, end):
+    if end is None:
+        conn.execute(ROLLUP_SQL.format(end=""), (start,))
+    else:
+        conn.execute(ROLLUP_SQL.format(end="AND ts < ?"), (start, end))
+
+
+def backfill_hourly(stop=None):
+    if get_text("hourly_done") == "1":
+        return 0
+    cutoff = int(get_text("hourly_from") or 0)
+    first = query_one("SELECT MIN(ts) m FROM checks")["m"]
+    done = 0
+    if first is not None:
+        end = cutoff
+        while end > first and not (stop and stop.is_set()):
+            start = max(first // 3600 * 3600, end - 86400)
+            with tx() as conn:
+                _rollup(conn, start, end)
+            end = start
+            done += 1
+        if stop and stop.is_set():
+            return done
+    set_settings({"hourly_done": "1"})
+    return done
 
 
 def get_settings():

@@ -72,11 +72,14 @@
 {% block scripts %}
 <script>
 let hosts = [], page = 1, size = 20;
+let loadSeq = 0;
 async function load() {
+  const seq = ++loadSeq;
   const p = new URLSearchParams({ page, size });
   if (filter.value.trim()) p.set('q', filter.value.trim());
   setGroup(p, groupFilter);
   const d = await api('/api/hosts?' + p);
+  if (seq !== loadSeq) return;
   hosts = d.hosts;
   rows.innerHTML = hosts.length ? hosts.map(h => `
     <tr>

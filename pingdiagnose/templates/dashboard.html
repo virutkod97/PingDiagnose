@@ -68,9 +68,12 @@ function params() {
   return p;
 }
 
+let loadSeq = 0;
 async function load() {
+  const seq = ++loadSeq;
   let data;
   try { data = await api('/api/dashboard?' + params()); } catch (e) { return; }
+  if (seq !== loadSeq) return;
   const c = data.counts;
   kTotal.textContent = c.enabled + (c.total > c.enabled ? ` / ${c.total}` : '');
   kUp.textContent = c.up; kWarn.textContent = c.warning; kDown.textContent = c.down;

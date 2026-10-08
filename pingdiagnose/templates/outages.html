@@ -50,11 +50,14 @@ function params() {
   setGroup(p, oGroup);
   return p;
 }
+let loadSeq = 0;
 async function load() {
+  const seq = ++loadSeq;
   const p = params();
   p.set('page', page); p.set('size', size);
   let d;
   try { d = await api('/api/outages?' + p); } catch (e) { return toast('Lỗi', e.message, 'err'); }
+  if (seq !== loadSeq) return;
   kHosts.textContent = d.total; kTimes.textContent = d.outages;
   if (d.page === 1) maxN = d.rows.length ? d.rows[0].n : 1;
   oRows.innerHTML = d.rows.length ? d.rows.map((r, i) => `

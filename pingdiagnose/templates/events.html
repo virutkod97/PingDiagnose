@@ -19,11 +19,14 @@
 {% block scripts %}
 <script>
 let page = 1, size = 20;
+let loadSeq = 0;
 async function load() {
+  const seq = ++loadSeq;
   const p = new URLSearchParams({ page, size });
   if (eHost.value) p.set('host_id', eHost.value);
   if (eType.value) p.set('type', eType.value);
   const d = await api('/api/events?' + p);
+  if (seq !== loadSeq) return;
   rows.innerHTML = d.events.length ? d.events.map(e => `<tr><td>${e.time}</td>
     <td class="${e.type === 'down' ? 'ev-down' : 'ev-up'}">${e.type === 'down' ? '⚠ Mất kết nối' : '✅ Phục hồi'}</td>
     <td>${esc(e.name || '')} (${esc(e.ip || '')})</td><td>${esc(e.message)}</td></tr>`).join('')
