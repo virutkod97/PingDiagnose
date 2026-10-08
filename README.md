@@ -10,7 +10,7 @@ Viết bằng Python (Flask + SQLite), đóng gói sẵn thành `PingDiagnose.ex
 | # | Chức năng | Chi tiết |
 |---|-----------|----------|
 | 1 | Khai báo IP giám sát | Thêm / sửa / xoá / tạm dừng, phân **nhóm** (VD theo trạm, quản lý tại nút Quản lý nhóm), nhập hàng loạt (`IP, Tên, Nhóm, Mô tả` mỗi dòng), nút "Ping thử" |
-| 2 | Ping định kỳ | Mặc định **3 phút** một lần, **2 gói ping** mỗi địa chỉ (song song, dùng ICMP API của Windows) |
+| 2 | Ping định kỳ | Mặc định **3 phút** một lần, **2 gói ping** mỗi địa chỉ (dùng ICMP API của Windows). Mỗi IP có lịch riêng, ping sau chu kỳ + ngẫu nhiên 0–59 giây (VD 3:00–3:59) để không dồn cả nghìn IP cùng lúc |
 | 3 | Theo dõi mất kết nối | Không phản hồi **3 chu kỳ liên tiếp (9 phút)** → trạng thái *Mất kết nối*, ghi vào lịch sử; ghi nhận khi phục hồi |
 | 4 | Dashboard | Số địa chỉ hoạt động / lỗi / mất kết nối, tỷ lệ kết nối & gói nhận 24h, danh sách IP mất kết nối 24 giờ qua kèm số lần, tỷ lệ 24h/7 ngày từng IP, lọc theo nhóm |
 | 5 | Báo cáo | Chọn IP, trạng thái (đang hoạt động / mất kết nối / cảnh báo), khoảng ngày, nhóm theo giờ/ngày: biểu đồ, bảng thống kê, danh sách sự kiện, **xuất CSV (Excel)**, in |

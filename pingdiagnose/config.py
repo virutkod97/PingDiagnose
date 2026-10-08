@@ -5,7 +5,7 @@ import sys
 
 APP_NAME = "PingDiagnose"
 DISPLAY_NAME = "IED Monitor"
-VERSION = "1.5.0"
+VERSION = "1.5.1"
 FROZEN = getattr(sys, "frozen", False)
 
 DEFAULT_CONFIG = {

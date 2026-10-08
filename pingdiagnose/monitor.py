@@ -1,14 +1,18 @@
 import logging
+import queue
+import random
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
 from . import db
-from .pinger import ping
+from .pinger import PingResult, ping
 
 log = logging.getLogger("pingdiagnose.monitor")
 
 RAW_DAYS = 14
+JITTER = 59
+REFRESH = 10
 
 
 def fmt_duration(sec):
@@ -69,14 +73,27 @@ def process_result(host, result, threshold, now=None):
     return new_status, event
 
 
+def jitter_max(interval):
+    return max(0, min(JITTER, interval - 1))
+
+
 class Monitor:
-    def __init__(self):
+    def __init__(self, workers=64):
         self._stop = threading.Event()
         self._thread = None
-        self.next_cycle = None
+        self._pool = None
+        self._workers = workers
+        self._due = {}
+        self._hosts = {}
+        self._inflight = set()
+        self._results = queue.Queue()
+        self._settings = None
+        self._refreshed = 0
         self._last_cleanup = 0
+        self.submit = self._submit_pool
 
     def start(self):
+        self._pool = ThreadPoolExecutor(max_workers=self._workers, thread_name_prefix="ping")
         self._thread = threading.Thread(target=self._run, name="monitor", daemon=True)
         self._thread.start()
 
@@ -84,32 +101,84 @@ class Monitor:
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=15)
+        if self._pool:
+            self._pool.shutdown(wait=False, cancel_futures=True)
 
-    def run_cycle(self):
-        s = db.get_settings()
-        hosts = db.query("SELECT id, ip FROM hosts WHERE enabled = 1")
-        if not hosts:
-            return
-        count, timeout, threshold = max(1, s["ping_count"]), max(100, s["ping_timeout_ms"]), max(1, s["fail_threshold"])
-        now = int(time.time())
-        with ThreadPoolExecutor(max_workers=min(128, len(hosts))) as ex:
-            results = list(ex.map(lambda h: ping(h["ip"], count, timeout), hosts))
+    def _submit_pool(self, fn, *args):
+        self._pool.submit(fn, *args)
+
+    def _ping_task(self, hid, ip, count, timeout, started):
+        try:
+            res = ping(ip, count, timeout)
+        except Exception as e:
+            res = PingResult(sent=count, error=str(e))
+        self._results.put((hid, started, res))
+
+    def refresh(self, now):
+        self._settings = db.get_settings()
+        interval = max(30, self._settings["interval_seconds"])
+        rows = db.query("SELECT id, ip, last_check FROM hosts WHERE enabled = 1")
+        self._hosts = {r["id"]: r["ip"] for r in rows}
+        for hid in list(self._due):
+            if hid not in self._hosts:
+                del self._due[hid]
+        spread = min(interval, JITTER + 1)
+        for r in rows:
+            if r["id"] in self._due:
+                continue
+            if r["last_check"] and r["last_check"] + interval > now:
+                self._due[r["id"]] = r["last_check"] + interval + random.uniform(0, jitter_max(interval))
+            elif r["last_check"]:
+                self._due[r["id"]] = now + random.uniform(0, spread)
+            else:
+                self._due[r["id"]] = now + random.uniform(0, 3)
+        self._refreshed = now
+
+    def dispatch(self, now):
+        s = self._settings
+        count, timeout = max(1, s["ping_count"]), max(100, s["ping_timeout_ms"])
+        for hid, due in list(self._due.items()):
+            if due <= now and hid not in self._inflight:
+                self._inflight.add(hid)
+                self.submit(self._ping_task, hid, self._hosts[hid], count, timeout, int(now))
+
+    def collect(self):
+        batch = []
+        while True:
+            try:
+                batch.append(self._results.get_nowait())
+            except queue.Empty:
+                break
+        if not batch:
+            return 0
+        s = self._settings
+        interval = max(30, s["interval_seconds"])
+        threshold = max(1, s["fail_threshold"])
         events = []
         with db.tx() as conn:
-            current = {r["id"]: r for r in conn.execute("SELECT * FROM hosts WHERE enabled = 1")}
-            for host, res in zip(hosts, results):
-                cur = current.get(host["id"])
+            for hid, started, res in batch:
+                self._inflight.discard(hid)
+                if hid in self._due:
+                    self._due[hid] = started + interval + random.uniform(0, jitter_max(interval))
+                cur = conn.execute("SELECT * FROM hosts WHERE id = ? AND enabled = 1", (hid,)).fetchone()
                 if cur is None:
                     continue
                 try:
-                    _, ev = apply_result(conn, cur, res, threshold, now)
+                    _, ev = apply_result(conn, cur, res, threshold, started)
                     if ev:
                         events.append(ev[1])
                 except Exception:
-                    log.exception("Lỗi ghi kết quả %s", host["ip"])
+                    log.exception("Lỗi ghi kết quả host_id=%s", hid)
         for msg in events:
             log.warning(msg)
-        log.info("Hoàn tất chu kỳ: %d địa chỉ trong %.1f giây", len(hosts), time.time() - now)
+        return len(batch)
+
+    def tick(self, now=None):
+        now = now or time.time()
+        if self._settings is None or now - self._refreshed >= REFRESH:
+            self.refresh(now)
+        self.dispatch(now)
+        return self.collect()
 
     def cleanup(self):
         days = db.get_settings()["retention_days"]
@@ -124,28 +193,16 @@ class Monitor:
 
     def _run(self):
         log.info("Bắt đầu giám sát")
-        while not self._stop.is_set():
-            start = time.time()
+        while not self._stop.wait(1):
+            now = time.time()
             try:
-                self.run_cycle()
+                self.tick(now)
             except Exception:
-                log.exception("Lỗi chu kỳ giám sát")
-            if start - self._last_cleanup > 86400:
+                log.exception("Lỗi giám sát")
+            if now - self._last_cleanup > 86400:
                 try:
                     self.cleanup()
-                    self._last_cleanup = start
+                    self._last_cleanup = now
                 except Exception:
                     log.exception("Lỗi dọn dữ liệu")
-            try:
-                interval = max(30, db.get_settings()["interval_seconds"])
-            except Exception:
-                interval = 180
-            self.next_cycle = int(start + interval)
-            while not self._stop.wait(min(5, max(0, self.next_cycle - time.time()))):
-                if time.time() >= self.next_cycle:
-                    break
-                try:
-                    self.next_cycle = int(start + max(30, db.get_settings()["interval_seconds"]))
-                except Exception:
-                    pass
         log.info("Dừng giám sát")

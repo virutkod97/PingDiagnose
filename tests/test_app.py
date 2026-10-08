@@ -292,3 +292,38 @@ def test_hourly_rollup_and_backfill(monkeypatch):
     Monitor().cleanup()
     assert db.query_one("SELECT MIN(ts) m FROM checks")["m"] >= now - 14 * 86400 - 1
     db._local.__dict__.clear()
+
+
+def test_jittered_schedule(monkeypatch):
+    d = tempfile.mkdtemp()
+    monkeypatch.setenv("PINGDIAGNOSE_DATA", d)
+    from collections import Counter, defaultdict
+    from pingdiagnose import db, monitor
+    from pingdiagnose.pinger import PingResult
+    db._local.__dict__.clear()
+    db.init_db()
+    db.set_settings({"interval_seconds": 180, "fail_threshold": 3})
+    t0 = int(time.time()) - 7200
+    with db.tx() as conn:
+        for i in range(200):
+            conn.execute("INSERT INTO hosts(name, ip, created_at, last_check) VALUES (?, ?, 0, ?)",
+                         (f"h{i}", f"10.7.{i // 250}.{i % 250 + 1}", t0 - 600))
+    monkeypatch.setattr(monitor, "ping", lambda ip, c, t: PingResult(sent=2, received=2, rtts=[1.0]))
+    m = monitor.Monitor()
+    m.submit = lambda fn, *a: fn(*a)
+    for sec in range(3600):
+        m.tick(t0 + sec)
+    rows = db.query("SELECT host_id, ts FROM checks ORDER BY host_id, ts")
+    by_host = defaultdict(list)
+    for r in rows:
+        by_host[r["host_id"]].append(r["ts"])
+    assert len(by_host) == 200
+    gaps = [b - a for ts in by_host.values() for a, b in zip(ts, ts[1:])]
+    assert min(gaps) >= 180 and max(gaps) <= 240
+    assert len(set(gaps)) > 30
+    first = [ts[0] - t0 for ts in by_host.values()]
+    assert max(first) <= 60 and len(set(first)) > 30
+    per_sec = Counter(r["ts"] for r in rows)
+    assert max(per_sec.values()) <= 15
+    assert 14 <= min(len(ts) for ts in by_host.values()) <= max(len(ts) for ts in by_host.values()) <= 21
+    db._local.__dict__.clear()
