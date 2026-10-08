@@ -12,7 +12,7 @@
   {% endif %}
 </div>
 <div class="card">
-  <div class="form-row"><input id="filter" placeholder="Tìm tên / IP..." style="width:240px"><select id="groupFilter"></select></div>
+  <form class="form-row" id="searchForm"><input id="filter" placeholder="Tìm tên / IP..." style="width:240px"><button type="submit" class="btn-primary">🔍 Tìm kiếm</button><select id="groupFilter"></select></form>
   <div class="table-wrap">
   <table>
     <thead><tr><th>Tên</th><th>Địa chỉ IP</th><th>Nhóm</th><th>Mô tả</th><th>Trạng thái</th><th>Kiểm tra lần cuối</th>
@@ -92,7 +92,7 @@ async function load() {
     </tr>`).join('') : `<tr><td colspan="7" class="muted">Không có địa chỉ.</td></tr>`;
   pager(hostPager, d.total, d.page, d.size, (p2, s2) => { page = p2; size = s2; load(); });
 }
-filter.oninput = debounce(() => { page = 1; load(); });
+searchForm.onsubmit = e => { e.preventDefault(); page = 1; load(); };
 groupFilter.onchange = () => { page = 1; load(); };
 let groups = [];
 async function refreshGroups() {
