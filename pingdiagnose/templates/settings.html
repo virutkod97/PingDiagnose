@@ -16,6 +16,10 @@
       <div class="form-row" style="margin:0"><select id="notify_sound"><option value="1">Bật</option><option value="0">Tắt</option></select>
       <button type="button" onclick="Alerts.play('down')">🔊 Nghe thử mất kết nối</button>
       <button type="button" onclick="Alerts.play('up')">🔊 Nghe thử phục hồi</button></div></div>
+    <div class="field" style="margin-bottom:12px"><label>Gửi thông báo thử trên máy này</label>
+      <div class="form-row" style="margin:0">
+      <button type="button" onclick="Alerts.test('down')">🔔 Thử thông báo mất kết nối</button>
+      <button type="button" onclick="Alerts.test('up')">🔔 Thử thông báo phục hồi</button></div></div>
     {% if user.role == 'admin' %}<button class="btn-primary" type="submit">Lưu cấu hình</button>{% endif %}
   </form>
 </div>

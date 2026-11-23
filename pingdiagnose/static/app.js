@@ -168,7 +168,27 @@ const Alerts = (() => {
     poll();
     setInterval(poll, 15000);
   }
-  return { start, play };
+  async function test(type) {
+    audio();
+    if (!('Notification' in window)) toast('Lỗi', 'Trình duyệt không hỗ trợ thông báo', 'err');
+    else if (!window.isSecureContext) toast('Không gửi được thông báo Windows', 'Cần truy cập bằng https:// và đã cài chứng chỉ', 'err', 15000);
+    else {
+      if (Notification.permission === 'default') await Notification.requestPermission();
+      if (Notification.permission === 'denied') toast('Thông báo đang bị chặn', 'Bấm biểu tượng ổ khoá cạnh địa chỉ web → Thông báo → Cho phép, rồi tải lại trang', 'err', 15000);
+      renderControls();
+    }
+    const now = new Date(), p = n => String(n).padStart(2, '0');
+    const e = { id: 'test' + Date.now(), type,
+      time: `${p(now.getHours())}:${p(now.getMinutes())}:${p(now.getSeconds())} ${p(now.getDate())}/${p(now.getMonth() + 1)}/${now.getFullYear()}`,
+      text: type === 'down' ? 'Thiết bị thử - Nhóm thử (0.0.0.0) không phản hồi 3 chu kỳ liên tiếp (thông báo thử)'
+                            : 'Thiết bị thử - Nhóm thử (0.0.0.0) đã phản hồi trở lại sau 10 phút (thông báo thử)' };
+    const t = e.type === 'down' ? '⚠ Mất kết nối' : '✅ Phục hồi';
+    toast(t, `${e.text} (${e.time})`, e.type, 15000);
+    desktop(t, e.text, e.id);
+    if (muted()) toast('Máy này đang tắt tiếng', 'Bấm nút 🔇 ở cuối menu để bật lại', 'err');
+    else play(type);
+  }
+  return { start, play, test };
 })();
 
 if (window.APP && !APP.mustChange) Alerts.start();
