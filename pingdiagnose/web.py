@@ -23,6 +23,8 @@ SETTING_LIMITS = {
     "ping_timeout_ms": (100, 10000),
     "fail_threshold": (1, 100),
     "retention_days": (0, 3650),
+    "notify_mode": (0, 2),
+    "notify_sound": (0, 1),
 }
 
 _login_fail = {}
@@ -239,7 +241,7 @@ def create_app():
             out.append(item)
         outages = outage_rows(day, now, limit=50)["rows"]
         events = db.query(
-            "SELECT e.*, h.name, h.ip FROM events e LEFT JOIN hosts h ON h.id = e.host_id "
+            "SELECT e.*, h.name, h.ip, h.grp FROM events e LEFT JOIN hosts h ON h.id = e.host_id "
             "ORDER BY e.id DESC LIMIT 10")
         return jsonify(
             counts=counts,
@@ -444,9 +446,23 @@ def create_app():
             params.append(request.args["type"])
         cond = (" WHERE " + " AND ".join(where)) if where else ""
         total = db.query_one(f"SELECT COUNT(*) n FROM events e{cond}", params)["n"]
-        rows = db.query("SELECT e.*, h.name, h.ip FROM events e LEFT JOIN hosts h ON h.id = e.host_id"
+        rows = db.query("SELECT e.*, h.name, h.ip, h.grp FROM events e LEFT JOIN hosts h ON h.id = e.host_id"
                         f"{cond} ORDER BY e.id DESC LIMIT ? OFFSET ?", params + [size, offset])
         return jsonify(events=[fmt_event(e) for e in rows], total=total, page=page, size=size)
+
+    @app.route("/api/events/new")
+    @login_required
+    def api_events_new():
+        st = db.get_settings()
+        last = db.query_one("SELECT COALESCE(MAX(id), 0) n FROM events")["n"]
+        after = request.args.get("after", type=int)
+        rows = []
+        if after is not None and after < last:
+            rows = db.query("SELECT e.*, h.name, h.ip, h.grp FROM events e LEFT JOIN hosts h ON h.id = e.host_id "
+                            "WHERE e.id > ? AND e.ts >= ? ORDER BY e.id LIMIT 50",
+                            (after, int(time.time()) - 600))
+        return jsonify(last_id=last, notify_mode=st["notify_mode"], notify_sound=st["notify_sound"],
+                       events=[fmt_event(e) for e in rows])
 
     def report_params():
         today = datetime.now().date()
@@ -551,7 +567,7 @@ def create_app():
             })
         e_total = db.query_one(f"SELECT COUNT(*) n FROM events e{ev_where}", ev_params)["n"]
         e_limit = f" LIMIT {psize} OFFSET {(e_page - 1) * psize}" if paged else ""
-        events = db.query("SELECT e.*, h.name, h.ip FROM events e LEFT JOIN hosts h ON h.id = e.host_id"
+        events = db.query("SELECT e.*, h.name, h.ip, h.grp FROM events e LEFT JOIN hosts h ON h.id = e.host_id"
                           f"{ev_where} ORDER BY e.ts DESC{e_limit}", ev_params)
         return {
             "from": d_from.strftime("%Y-%m-%d"), "to": d_to.strftime("%Y-%m-%d"),
@@ -659,7 +675,7 @@ def create_app():
         put([])
         put(["Thời điểm", "Loại", "Địa chỉ", "Nội dung"])
         for e in rep["events"]:
-            put([e["time"], "Mất kết nối" if e["type"] == "down" else "Phục hồi", e["ip"], e["message"]])
+            put([e["time"], "Mất kết nối" if e["type"] == "down" else "Phục hồi", e["host"], e["content"]])
         fname = f"baocao_{rep['from']}_{rep['to']}.csv"
         return Response(buf.getvalue(), mimetype="text/csv; charset=utf-8",
                         headers={"Content-Disposition": f"attachment; filename={fname}"})
@@ -847,4 +863,11 @@ def fmt_dur(sec):
 def fmt_event(e):
     e = dict(e)
     e["time"] = time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(e["ts"]))
+    name, ip, grp = e.get("name") or "", e.get("ip") or "", e.get("grp") or ""
+    msg = e.get("message") or ""
+    mark = f"({ip}) "
+    content = msg.split(mark, 1)[1] if ip and mark in msg else msg
+    host = name + (f" - {grp}" if grp else "") + (f" ({ip})" if ip else "")
+    e["host"], e["content"] = host, content
+    e["text"] = f"{host} {content}" if host else msg
     return e

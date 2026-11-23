@@ -15,9 +15,10 @@ Viết bằng Python (Flask + SQLite), đóng gói sẵn thành `PingDiagnose.ex
 | 4 | Dashboard | Số địa chỉ hoạt động / lỗi / mất kết nối, tỷ lệ kết nối & gói nhận 24h, danh sách IP mất kết nối 24 giờ qua kèm số lần, tỷ lệ 24h/7 ngày từng IP, lọc theo nhóm |
 | 5 | Báo cáo | Chọn IP, trạng thái (đang hoạt động / mất kết nối / cảnh báo), khoảng ngày, nhóm theo giờ/ngày: biểu đồ, bảng thống kê, danh sách sự kiện, **xuất CSV (Excel)**, in |
 | 6 | Thống kê mất kết nối | Đếm số lần mất kết nối của từng IP theo khoảng thời gian, lọc theo nhóm, sắp xếp giảm dần, xuất CSV |
-| 7 | Phân quyền | **Quản trị** (full quyền) và **Chỉ xem** |
+| 7 | Cảnh báo tức thời | Khi có sự kiện mất kết nối / phục hồi mới: **âm thanh**, thông báo của Windows (bấm *Bật thông báo* ở cuối menu), popup trên trang. Nội dung dạng `Thiết bị - Nhóm (IP) nội dung`. Mỗi máy có thể tự tắt tiếng |
+| 8 | Phân quyền | **Quản trị** (full quyền) và **Chỉ xem** |
 
-Tên Dashboard, chu kỳ, số gói, timeout, ngưỡng cảnh báo, số ngày lưu dữ liệu chỉnh trong trang **Cấu hình**.
+Tên Dashboard, chu kỳ, số gói, timeout, ngưỡng cảnh báo, số ngày lưu dữ liệu, chế độ thông báo (tắt / chỉ mất kết nối / mất kết nối và phục hồi), âm thanh chỉnh trong trang **Cấu hình**.
 
 ## Cài đặt
 

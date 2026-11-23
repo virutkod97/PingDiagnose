@@ -133,7 +133,7 @@ async function load() {
 
   repEvents.innerHTML = r.events.length ? r.events.map(e =>
     `<li><span class="${e.type === 'down' ? 'ev-down' : 'ev-up'}">${e.type === 'down' ? '⚠ Mất kết nối' : '✅ Phục hồi'}</span>
-     <span class="muted">${e.time}</span> – ${esc(e.message)}</li>`).join('') : '<li class="muted">Không có sự kiện.</li>';
+     <span class="muted">${e.time}</span> – <b>${esc(e.host)}</b> ${esc(e.content)}</li>`).join('') : '<li class="muted">Không có sự kiện.</li>';
   pager(evPager, r.events_total, r.events_page, r.size, (p, sz) => { epage = p; size = sz; load(); });
 }
 (async () => {

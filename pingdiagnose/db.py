@@ -88,6 +88,8 @@ DEFAULT_SETTINGS = {
     "ping_timeout_ms": "1000",
     "fail_threshold": "3",
     "retention_days": "180",
+    "notify_mode": "2",
+    "notify_sound": "1",
 }
 
 _local = threading.local()

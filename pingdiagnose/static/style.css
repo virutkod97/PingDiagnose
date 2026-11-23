@@ -18,6 +18,7 @@ a { color: var(--primary); text-decoration: none; }
 .side-foot { margin-top: auto; padding: 14px 20px; border-top: 1px solid #1f2937; font-size: 12px; }
 .side-foot .role { display: inline-block; padding: 1px 6px; border-radius: 4px; background: #334155; margin-left: 4px; }
 .side-foot button { margin-top: 8px; width: 100%; }
+.alert-ctl button { font-size: 12px; padding: 5px 8px; }
 .side-copy { margin-top: 12px; text-align: center; font-size: 10px; line-height: 1.5; color: #64748b; }
 .side-copy a, .copyright a { color: inherit; }
 .copyright { text-align: center; font-size: 12px; }

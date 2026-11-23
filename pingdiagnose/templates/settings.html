@@ -10,6 +10,12 @@
     <div class="field" style="margin-bottom:12px"><label>Thời gian chờ mỗi gói (ms)</label><input type="number" id="ping_timeout_ms" min="100" max="10000" required></div>
     <div class="field" style="margin-bottom:12px"><label>Số chu kỳ lỗi liên tiếp để báo mất kết nối</label><input type="number" id="fail_threshold" min="1" max="100" required></div>
     <div class="field" style="margin-bottom:12px"><label>Số ngày lưu dữ liệu</label><input type="number" id="retention_days" min="0" max="3650" required></div>
+    <div class="field" style="margin-bottom:12px"><label>Thông báo trên trình duyệt</label>
+      <select id="notify_mode"><option value="0">Tắt</option><option value="1">Chỉ khi mất kết nối</option><option value="2">Mất kết nối và phục hồi</option></select></div>
+    <div class="field" style="margin-bottom:12px"><label>Âm thanh cảnh báo</label>
+      <div class="form-row" style="margin:0"><select id="notify_sound"><option value="1">Bật</option><option value="0">Tắt</option></select>
+      <button type="button" onclick="Alerts.play('down')">🔊 Nghe thử mất kết nối</button>
+      <button type="button" onclick="Alerts.play('up')">🔊 Nghe thử phục hồi</button></div></div>
     {% if user.role == 'admin' %}<button class="btn-primary" type="submit">Lưu cấu hình</button>{% endif %}
   </form>
 </div>
@@ -25,7 +31,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-const KEYS = ['interval_seconds', 'ping_count', 'ping_timeout_ms', 'fail_threshold', 'retention_days'];
+const KEYS = ['interval_seconds', 'ping_count', 'ping_timeout_ms', 'fail_threshold', 'retention_days', 'notify_mode', 'notify_sound'];
 (async () => {
   const d = await api('/api/settings');
   KEYS.forEach(k => { const el = document.getElementById(k); el.value = d.settings[k]; el.disabled = !APP.isAdmin; });

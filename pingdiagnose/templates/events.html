@@ -9,7 +9,7 @@
   </div>
   <div class="table-wrap">
   <table>
-    <thead><tr><th style="width:170px">Thời điểm</th><th style="width:130px">Loại</th><th>Địa chỉ</th><th>Nội dung</th></tr></thead>
+    <thead><tr><th style="width:170px">Thời điểm</th><th style="width:130px">Loại</th><th>Thiết bị - Nhóm (IP)</th><th>Nội dung</th></tr></thead>
     <tbody id="rows"></tbody>
   </table>
   </div>
@@ -29,7 +29,7 @@ async function load() {
   if (seq !== loadSeq) return;
   rows.innerHTML = d.events.length ? d.events.map(e => `<tr><td>${e.time}</td>
     <td class="${e.type === 'down' ? 'ev-down' : 'ev-up'}">${e.type === 'down' ? '⚠ Mất kết nối' : '✅ Phục hồi'}</td>
-    <td>${esc(e.name || '')} (${esc(e.ip || '')})</td><td>${esc(e.message)}</td></tr>`).join('')
+    <td>${esc(e.host)}</td><td>${esc(e.content)}</td></tr>`).join('')
     : '<tr><td colspan="4" class="muted">Chưa có cảnh báo.</td></tr>';
   pager(evPager, d.total, d.page, d.size, (p2, s2) => { page = p2; size = s2; load(); });
 }

@@ -327,3 +327,28 @@ def test_jittered_schedule(monkeypatch):
     assert max(per_sec.values()) <= 15
     assert 14 <= min(len(ts) for ts in by_host.values()) <= max(len(ts) for ts in by_host.values()) <= 21
     db._local.__dict__.clear()
+
+
+def test_event_notify_feed(client):
+    tok = setup_admin(client)
+    h = {"X-CSRF-Token": tok}
+    client.post("/api/groups", json={"name": "TBA A"}, headers=h)
+    client.post("/api/hosts", json={"ip": "10.7.7.7", "name": "Rơle 1", "grp": "TBA A"}, headers=h)
+    first = client.get("/api/events/new").get_json()
+    assert first["events"] == [] and first["notify_mode"] == 2 and first["notify_sound"] == 1
+    from pingdiagnose import db
+    from pingdiagnose.monitor import process_result
+    from pingdiagnose.pinger import PingResult
+    for _ in range(3):
+        host = db.query_one("SELECT * FROM hosts WHERE ip='10.7.7.7'")
+        process_result(host, PingResult(sent=2, received=0), 3)
+    d = client.get(f"/api/events/new?after={first['last_id']}").get_json()
+    assert len(d["events"]) == 1 and d["last_id"] > first["last_id"]
+    e = d["events"][0]
+    assert e["host"] == "Rơle 1 - TBA A (10.7.7.7)"
+    assert e["text"] == "Rơle 1 - TBA A (10.7.7.7) không phản hồi 3 chu kỳ liên tiếp"
+    assert client.get(f"/api/events/new?after={d['last_id']}").get_json()["events"] == []
+    assert client.put("/api/settings", json={"notify_mode": 1, "notify_sound": 0}, headers=h).status_code == 200
+    assert client.put("/api/settings", json={"notify_mode": 3}, headers=h).status_code == 400
+    s = client.get("/api/events/new").get_json()
+    assert s["notify_mode"] == 1 and s["notify_sound"] == 0

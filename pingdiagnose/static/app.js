@@ -94,3 +94,81 @@ function closeModal(id) { document.getElementById(id).classList.remove('show'); 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') document.querySelectorAll('.modal-bg.show').forEach(m => m.classList.remove('show'));
 });
+
+const Alerts = (() => {
+  let ctx = null, lastId = null, mode = 2, sound = 1;
+  const LS = 'pd_last_event', MUTE = 'pd_mute';
+  const ls = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
+
+  function audio() {
+    if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; } }
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+  function tone(freq, start, dur, type = 'sine', vol = 0.25) {
+    const a = audio(); if (!a) return;
+    const o = a.createOscillator(), g = a.createGain(), t = a.currentTime + start;
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + 0.02);
+    g.gain.setValueAtTime(vol, t + dur - 0.05); g.gain.linearRampToValueAtTime(0, t + dur);
+    o.connect(g); g.connect(a.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function play(type) {
+    if (type === 'down') { for (let i = 0; i < 3; i++) { tone(880, i * 0.5, 0.22, 'square', 0.15); tone(660, i * 0.5 + 0.24, 0.22, 'square', 0.15); } }
+    else { tone(523, 0, 0.18); tone(659, 0.18, 0.18); tone(784, 0.36, 0.35); }
+  }
+  const muted = () => ls(MUTE) === '1';
+
+  function desktop(title, body, tag) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    try {
+      const n = new Notification(title, { body, tag, icon: '/static/apple-touch-icon.png', requireInteraction: title.startsWith('⚠') });
+      n.onclick = () => { window.focus(); n.close(); };
+    } catch (e) { }
+  }
+
+  function notify(events) {
+    events = events.filter(e => e.type === 'down' || mode === 2);
+    if (!events.length) return;
+    const downs = events.filter(e => e.type === 'down');
+    events.slice(-5).forEach(e => toast(e.type === 'down' ? '⚠ Mất kết nối' : '✅ Phục hồi', `${e.text} (${e.time})`, e.type, e.type === 'down' ? 60000 : 15000));
+    if (events.length <= 3) events.forEach(e => desktop(e.type === 'down' ? '⚠ Mất kết nối' : '✅ Phục hồi', e.text, 'ev' + e.id));
+    else desktop(downs.length ? `⚠ ${downs.length} địa chỉ mất kết nối` : `✅ ${events.length} địa chỉ phục hồi`,
+      events.slice(-5).map(e => (e.type === 'down' ? '⚠ ' : '✅ ') + e.text).join('\n'), 'evbatch');
+    if (sound && !muted()) play(downs.length ? 'down' : 'up');
+    document.dispatchEvent(new CustomEvent('pd-events', { detail: events }));
+  }
+
+  async function poll() {
+    const stored = parseInt(ls(LS));
+    const after = Math.max(lastId ?? -1, isNaN(stored) ? -1 : stored);
+    let d;
+    try { d = await api('/api/events/new' + (after >= 0 ? '?after=' + after : '')); } catch (e) { return; }
+    mode = d.notify_mode; sound = d.notify_sound;
+    const cur = parseInt(ls(LS));
+    if (!isNaN(cur) && cur > after) { lastId = cur; return; }
+    lastId = d.last_id; ls(LS, d.last_id);
+    if (mode && d.events.length) notify(d.events);
+  }
+
+  function renderControls() {
+    const box = document.getElementById('alertCtl');
+    if (!box) return;
+    const perm = 'Notification' in window ? Notification.permission : 'unsupported';
+    box.innerHTML = (perm === 'default' ? '<button type="button" id="btnNotif">🔔 Bật thông báo</button>' : '') +
+      `<button type="button" id="btnMute">${muted() ? '🔇 Đang tắt tiếng' : '🔊 Âm thanh: Bật'}</button>`;
+    const bn = document.getElementById('btnNotif');
+    if (bn) bn.onclick = async () => { audio(); await Notification.requestPermission(); renderControls(); };
+    document.getElementById('btnMute').onclick = () => { ls(MUTE, muted() ? '0' : '1'); if (!muted()) play('up'); renderControls(); };
+  }
+
+  function start() {
+    ['click', 'keydown'].forEach(ev => document.addEventListener(ev, () => audio(), { once: true }));
+    renderControls();
+    poll();
+    setInterval(poll, 15000);
+  }
+  return { start, play };
+})();
+
+if (window.APP && !APP.mustChange) Alerts.start();
